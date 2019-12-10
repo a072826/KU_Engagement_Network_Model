@@ -3,10 +3,10 @@ library(janitor)
 library(widyr)
 library(rstudioapi)
 library(readxl)
-current_path = rstudioapi::getActiveDocumentContext()$path
-setwd(dirname(current_path ))
+# current_path = rstudioapi::getActiveDocumentContext()$path
+# setwd(dirname(current_path ))
 getwd()
-source("../../../func.r")
+source("../../../R_functions/func.r", encoding = 'utf-8')
 
 year_term_tl <- tibble("year_term" = paste(rep(2001:2019, each=2), c("1R", "2R"), sep = "_"),
            "Num_year_term" = 1:38)
@@ -19,20 +19,52 @@ year_term_tl <- tibble(year = rep(2001:2020, each = 2),
          year_term = paste(year, term, sep = "_"),
          Num_year_term = 1:n())
 
-학과정보 <- read.csv("../../../학과정보.csv")
+학과정보 <- read.csv("../../../학과정보.csv") %>% 
+  select(-X)
 
   
 ############################################################################
-######################### 재학생 기본정보 ################################
+######################### 졸업생 기본정보 ################################
 ############################################################################
-student_info <- read.delim("../../../재학생_학부_기본정보.txt", header = T, 
-                           sep = "|", stringsAsFactors = FALSE) %>% 
+
+student_info <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
+                           sep = "|", stringsAsFactors = FALSE) %>%
   as_tibble() %>% 
   mutate(student_code = 1:n()) %>% 
-  filter(입학년도 == 2015) %>% 
+  filter(졸업년도 %in% c(2011:2019)) %>% 
+  filter(입학년도 %in% c(2001:2019)) %>% 
   left_join(학과정보, by = "학과코드") %>% 
   filter(캠퍼스구분 == 1)
 
+############################################################################
+######################### 출신학교 네트워크 ################################
+############################################################################
+
+# 졸업 년도에 따른 가중치 고려?
+
+preschool_raw <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
+                            sep = "|", stringsAsFactor = F) 
+
+preschool_network <- preschool_raw %>% 
+  inner_join(student_info, by = "식별자") %>% 
+  filter(출신교명 != "",
+             !is.na(출신교졸업년도)) %>% 
+  mutate(Source = student_code,
+         Domain = "출신교",
+         Target = 출신교명) %>% 
+  select(Source, Target, Domain) %>% 
+  mutate(Label = Target)
+
+
+############################################################################
+######################### 학과 네트워크 ################################
+############################################################################
+
+major_network <- student_info %>% 
+  select(학과, student_code) %>% 
+  mutate(Domain = "학과") %>% 
+  rename(Source = student_code, Target = 학과) %>% 
+  mutate(Label = Target)
 
 
 ############################################################################
@@ -47,15 +79,8 @@ college_network <- student_info %>%
 
 
 ############################################################################
-######################### 학과 네트워크 ################################
+######################### 장학금 네트워크 ################################
 ############################################################################
-
-major_network <- student_info %>% 
-  select(학과, student_code) %>% 
-  mutate(Domain = "학과") %>% 
-  rename(Source = student_code, Target = 학과) %>% 
-  mutate(Label = Target)
-
 
 
 ############################################################################
@@ -95,31 +120,6 @@ exchge_network <- exchge_raw %>%
          Source = student_code,
          Label = 파견대학) %>% 
   select(Source, Target, Domain, Label)
-
-
-############################################################################
-######################### 출신학교 네트워크 ################################
-############################################################################
-
-# 졸업 년도에 따른 가중치 고려?
-
-preschool_raw <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
-                            sep = "|", stringsAsFactor = F) 
-
-preschool_network <- preschool_raw %>% 
-  inner_join(student_info, by = "식별자") %>% 
-  filter(출신교명 != "",
-             !is.na(출신교졸업년도)) %>% 
-  mutate(Source = student_code,
-         Domain = "출신교",
-         Target = 출신교명) %>% 
-  select(Source, Target, Domain) %>% 
-  mutate(Label = Target)
-
-
-############################################################################
-######################### 장학금 네트워크 ################################
-############################################################################
 
 
 ############################################################################

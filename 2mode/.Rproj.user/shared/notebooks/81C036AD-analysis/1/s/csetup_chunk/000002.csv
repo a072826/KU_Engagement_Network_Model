@@ -1,0 +1,7 @@
+"0","knitr::opts_chunk$set("
+"0","	echo = F,"
+"0","	message = F,"
+"0","	warning = FALSE,"
+"0","	cache = T)"
+"0","library(kableExtra)"
+"0",""
