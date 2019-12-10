@@ -2,18 +2,18 @@
     "collab_server" : "",
     "contents" : "",
     "created" : 1575858399552.000,
-    "dirty" : true,
+    "dirty" : false,
     "encoding" : "UTF-8",
     "folds" : "",
     "hash" : "0",
     "id" : "F1577A77",
-    "lastKnownWriteTime" : 1575707931,
-    "last_content_update" : 1575858510698,
+    "lastKnownWriteTime" : 1575956908,
+    "last_content_update" : 1575956908,
     "path" : "C:/Users/Kibum Moon/Dropbox/study/DataHub/19_12_02_KU_Engagement_Network_Model/KU_Engagement_Network_Model/2mode/global_student_2mode.R",
     "project_path" : "global_student_2mode.R",
     "properties" : {
-        "cursorPosition" : "149,0",
-        "scrollLine" : "132"
+        "cursorPosition" : "31,27",
+        "scrollLine" : "29"
     },
     "read_only" : false,
     "read_only_alternatives" : [

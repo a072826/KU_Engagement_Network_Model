@@ -5,7 +5,7 @@ library(rstudioapi)
 current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
-source("../../func.r")
+source("../../../func.r")
 
 year_term_tl <- tibble("year_term" = paste(rep(2001:2019, each=2), c("1R", "2R"), sep = "_"),
            "Num_year_term" = 1:38)
@@ -18,13 +18,13 @@ year_term_tl <- tibble(year = rep(2001:2020, each = 2),
          year_term = paste(year, term, sep = "_"),
          Num_year_term = 1:n())
 
-학과정보 <- read.csv("../../학과정보.csv")
+학과정보 <- read.csv("../../../학과정보.csv")
 
   
 ############################################################################
 ######################### 재학생 기본정보 ################################
 ############################################################################
-student_info <- read.delim("../../재학생_학부_기본정보.txt", header = T, 
+student_info <- read.delim("../../../재학생_학부_기본정보.txt", header = T, 
                            sep = "|", stringsAsFactors = FALSE) %>% 
   as_tibble() %>% 
   mutate(student_code = 1:n()) %>% 
@@ -61,7 +61,7 @@ major_network <- student_info %>%
 ######################### 상벌 네트워크 ################################
 ############################################################################
 
-award_raw <- read_xls("../../재학생_학부_상벌정보.xls")
+award_raw <- read_xls("../../../재학생_학부_상벌정보.xls")
 
 
 award_network <- award_raw %>% 
@@ -79,7 +79,7 @@ award_network <- award_raw %>%
 ######################### 교환학생 네트워크 ################################
 ############################################################################
 
-exchge_raw <- read.delim("../../전체_교환학생.txt", header=T, sep = "|",
+exchge_raw <- read.delim("../../../전체_교환학생.txt", header=T, sep = "|",
                          stringsAsFactors = FALSE) %>% 
   as_tibble()
 
@@ -102,7 +102,7 @@ exchge_network <- exchge_raw %>%
 
 # 졸업 년도에 따른 가중치 고려?
 
-preschool_raw <- read.delim("../../재학생_학부_출신학교.txt", header=T, 
+preschool_raw <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
                             sep = "|", stringsAsFactor = F) 
 
 preschool_network <- preschool_raw %>% 
