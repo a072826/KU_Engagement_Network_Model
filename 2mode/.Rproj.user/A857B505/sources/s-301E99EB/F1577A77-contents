@@ -2,6 +2,7 @@ library(tidyverse)
 library(janitor)
 library(widyr)
 library(rstudioapi)
+library(readxl)
 current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
@@ -147,19 +148,6 @@ nodes <- edges %>%
   mutate(Label = case_when(Domain == "해외대학파견" ~ "해외대학파견",
                            TRUE ~ Label))
 
-# nodes <- student_info %>%
-#   semi_join(edges, by = c("student_code" = "Source")) %>%
-#   select(-식별자) %>%
-#   rename(Id = student_code) %>% 
-#   bind_rows()
 
-############################################################################
-######################### Gephi Data  ################################
-############################################################################
-
-
-# make nodes 
-write.csv(nodes, file="nodes_student.csv", fileEncoding = 'utf-8', row.names=F)
-write.csv(edges, file="edges_student.csv", fileEncoding = 'utf-8', row.names=F)
 
 
