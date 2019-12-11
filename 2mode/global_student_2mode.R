@@ -3,13 +3,13 @@ library(janitor)
 library(widyr)
 library(rstudioapi)
 library(readxl)
-# current_path = rstudioapi::getActiveDocumentContext()$path
-# setwd(dirname(current_path ))
+current_path = rstudioapi::getActiveDocumentContext()$path
+setwd(dirname(current_path ))
 getwd()
 source("../../../R_functions/func.r", encoding = 'utf-8')
 
 year_term_tl <- tibble("year_term" = paste(rep(2001:2019, each=2), c("1R", "2R"), sep = "_"),
-           "Num_year_term" = 1:38)
+                       "Num_year_term" = 1:38)
 
 year_term_tl <- tibble(year = rep(2001:2020, each = 2),
                        term = rep(c("1R", "2R"), 20)) %>% 
@@ -22,19 +22,48 @@ year_term_tl <- tibble(year = rep(2001:2020, each = 2),
 학과정보 <- read.csv("../../../학과정보.csv") %>% 
   select(-X)
 
-  
+
 ############################################################################
 ######################### 졸업생 기본정보 ################################
 ############################################################################
 
-student_info <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
-                           sep = "|", stringsAsFactors = FALSE) %>%
-  as_tibble() %>% 
-  mutate(student_code = 1:n()) %>% 
-  filter(졸업년도 %in% c(2011:2019)) %>% 
+student_info_alum <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
+                                sep = "|", stringsAsFactors = FALSE) %>% 
+  filter(졸업년도 > 2010) %>% 
+  filter(입학년도 >= 2000)   %>% 
+  left_join(학과정보, by = "학과코드") %>% 
+  filter(캠퍼스구분 == 1)
+
+
+student_info_std <- read.delim("../../../재학생_학부_기본정보.txt", header = T,
+                               sep = "|", stringsAsFactors = FALSE) %>% 
   filter(입학년도 %in% c(2001:2019)) %>% 
   left_join(학과정보, by = "학과코드") %>% 
   filter(캠퍼스구분 == 1)
+
+
+student_info <- student_info_alum %>% 
+  bind_rows(student_info_std)
+
+student_info <- student_info %>% 
+  mutate(student_code = 1:n())
+
+
+student_info_alum %>% nrow()
+student_info_std %>% nrow()
+student_info %>% nrow()
+
+
+############################################################################
+######################### 입학전형 네트워크 ################################
+############################################################################
+
+ent_network <- student_info %>% 
+  select(입학유형, student_code) %>% 
+  mutate(Domain = "입학유형") %>% 
+  rename(Source = student_code, Target = 입학유형) %>% 
+  mutate(Label = Target)
+
 
 ############################################################################
 ######################### 출신학교 네트워크 ################################
@@ -87,14 +116,19 @@ college_network <- student_info %>%
 ######################### 상벌 네트워크 ################################
 ############################################################################
 
-award_raw <- read_xls("../../../재학생_학부_상벌정보.xls")
 
+award_alum <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
+                         sep = "|", stringsAsFactors = FALSE)
+
+award_std <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
+                        sep = "|", stringsAsFactors = FALSE)
+
+award_raw <-  bind_rows(award_alum, award_std)
 
 award_network <- award_raw %>% 
   inner_join(student_info, by = "식별자") %>% 
   mutate(Source = student_code,
-         Target = case_when(grepl("우수|특대생|명예장학생", 상벌유형)~ "성적우수", # 상벌 유형에대한 공부 필요
-                            grepl("성적경고|유급", 상벌유형)~ "성적경고및유급" ),
+         Target = 상벌유형,
          Domain = Target,
          Label = 상벌유형) %>% 
   select(Source, Target, Domain, Label) %>% 
@@ -147,7 +181,3 @@ nodes <- edges %>%
   bind_rows(temp_nodes) %>% 
   mutate(Label = case_when(Domain == "해외대학파견" ~ "해외대학파견",
                            TRUE ~ Label))
-
-
-
-

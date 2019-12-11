@@ -1,4 +1,0 @@
-"0",""
-"0",".frq_plot(student_info %>% "
-"0","            mutate(졸업년도 = as.factor(졸업년도)), "
-"0","          colName = ""졸업년도"", ggplotly=F)"
