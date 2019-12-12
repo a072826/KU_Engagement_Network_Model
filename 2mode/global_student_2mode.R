@@ -108,7 +108,7 @@ college_network <- student_info %>%
 
 
 ############################################################################
-######################### 장학금 네트워크 ################################
+######################### 학적변동 네트워크 ################################
 ############################################################################
 
 record_alumni <- read.delim("../../../졸업생_학부_학적변동내역.txt", header = T,
@@ -176,12 +176,12 @@ award_network <- award_raw %>%
 
 # 학적 변동의 교환학생과 다름 점은 구체적인 학교까지 살펴볼 수 있다는 점
 
-# exchge_raw <- read.delim("../../../전체_교환학생.txt", header=T, sep = "|",
+# exchange_raw <- read.delim("../../../전체_교환학생.txt", header=T, sep = "|",
 #                          stringsAsFactors = FALSE) %>% 
 #   as_tibble()
 # 
 # 
-# exchge_network <- exchge_raw %>% 
+# exchange_network <- exchange_raw %>% 
 #   inner_join(student_info, by = "식별자") %>% 
 #   filter(합격여부 == "Y",
 #              !파견학기수 %in% c("%", "% ")) %>% # 퍼센트는 뭐지??? 
@@ -197,12 +197,19 @@ award_network <- award_raw %>%
 ######################### Binding Data  ################################
 ############################################################################
 
-edges <- exchge_network %>% 
-  bind_rows(preschool_network) %>% 
+# 엣지 합치기
+edges <- preschool_network %>% 
+  # bind_rows(exchange_network) %>% 
   # bind_rows(course_history_network) %>% 
-  bind_rows(major_network) %>% 
   bind_rows(college_network) %>% 
-  bind_rows(award_network)
+  bind_rows(major_network) %>% 
+  bind_rows(award_network) %>% 
+  bind_rows(record_network)
+  
+
+# 분석 대상 선별
+  
+
 
 temp_nodes <- student_info %>% 
   distinct(student_code) %>% 
