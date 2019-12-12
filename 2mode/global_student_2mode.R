@@ -27,7 +27,7 @@ year_term_tl <- tibble(year = rep(2001:2020, each = 2),
 ######################### 졸업생 기본정보 ################################
 ############################################################################
 
-student_info_alum <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
+student_info_alumni <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
                                 sep = "|", stringsAsFactors = FALSE) %>% 
   filter(졸업년도 > 2010) %>% 
   filter(입학년도 >= 2000)   %>% 
@@ -42,14 +42,14 @@ student_info_std <- read.delim("../../../재학생_학부_기본정보.txt", hea
   filter(캠퍼스구분 == 1)
 
 
-student_info <- student_info_alum %>% 
+student_info <- student_info_alumni %>% 
   bind_rows(student_info_std)
 
 student_info <- student_info %>% 
   mutate(student_code = 1:n())
 
 
-student_info_alum %>% nrow()
+student_info_alumni %>% nrow()
 student_info_std %>% nrow()
 student_info %>% nrow()
 
@@ -111,19 +111,54 @@ college_network <- student_info %>%
 ######################### 장학금 네트워크 ################################
 ############################################################################
 
+record_alumni <- read.delim("../../../졸업생_학부_학적변동내역.txt", header = T,
+                           sep = "|", stringsAsFactors = FALSE)
+
+record_std <- read.delim("../../../졸업생_학부_학적변동내역.txt", header = T,
+                        sep = "|", stringsAsFactors = FALSE)
+
+record_raw <-  bind_rows(record_alumni, record_std)
+
+record_network <- record_raw %>% 
+  inner_join(student_info, by = "식별자") %>% 
+  filter(!grepl("복학", 변동유형)) %>% 
+  mutate(Source = student_code,
+         Target = 변동유형,
+         Domain = 변동유형,
+         Label = 변동유형) %>% 
+  select(Source, Target, Domain, Label) %>% 
+  filter(!is.na(Target))
+
+
+
+
+############################################################################
+######################### 장학금 네트워크 ################################
+############################################################################
+
+# 어떻게 활용할 지 좀 더 고민해보자
+
+# scholarship_alumni <- read.delim("../../../졸업생_학부_장학금수혜.txt", header = T,
+#                          sep = "|", stringsAsFactors = FALSE)
+# 
+# scholarship_std <- read.delim("../../../졸업생_학부_장학금수혜.txt", header = T,
+#                         sep = "|", stringsAsFactors = FALSE)
+# 
+# scholarship_raw <-  bind_rows(scholarship_alumni, scholarship_std)
+
 
 ############################################################################
 ######################### 상벌 네트워크 ################################
 ############################################################################
 
 
-award_alum <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
+award_alumni <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
                          sep = "|", stringsAsFactors = FALSE)
 
 award_std <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
                         sep = "|", stringsAsFactors = FALSE)
 
-award_raw <-  bind_rows(award_alum, award_std)
+award_raw <-  bind_rows(award_alumni, award_std)
 
 award_network <- award_raw %>% 
   inner_join(student_info, by = "식별자") %>% 
@@ -139,21 +174,23 @@ award_network <- award_raw %>%
 ######################### 교환학생 네트워크 ################################
 ############################################################################
 
-exchge_raw <- read.delim("../../../전체_교환학생.txt", header=T, sep = "|",
-                         stringsAsFactors = FALSE) %>% 
-  as_tibble()
+# 학적 변동의 교환학생과 다름 점은 구체적인 학교까지 살펴볼 수 있다는 점
 
-
-exchge_network <- exchge_raw %>% 
-  inner_join(student_info, by = "식별자") %>% 
-  filter(합격여부 == "Y",
-             !파견학기수 %in% c("%", "% ")) %>% # 퍼센트는 뭐지??? 
-  select(student_code, 파견대학) %>% 
-  mutate(Domain = "해외대학파견",
-         Target = "해외대학파견",
-         Source = student_code,
-         Label = 파견대학) %>% 
-  select(Source, Target, Domain, Label)
+# exchge_raw <- read.delim("../../../전체_교환학생.txt", header=T, sep = "|",
+#                          stringsAsFactors = FALSE) %>% 
+#   as_tibble()
+# 
+# 
+# exchge_network <- exchge_raw %>% 
+#   inner_join(student_info, by = "식별자") %>% 
+#   filter(합격여부 == "Y",
+#              !파견학기수 %in% c("%", "% ")) %>% # 퍼센트는 뭐지??? 
+#   select(student_code, 파견대학) %>% 
+#   mutate(Domain = "해외대학파견",
+#          Target = "해외대학파견",
+#          Source = student_code,
+#          Label = 파견대학) %>% 
+#   select(Source, Target, Domain, Label)
 
 
 ############################################################################
