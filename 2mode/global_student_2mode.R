@@ -24,7 +24,7 @@ year_term_tl <- tibble(year = rep(2001:2020, each = 2),
 
 
 ############################################################################
-######################### 졸업생 기본정보 ################################
+######################### 학생 기본정보 ################################
 ############################################################################
 
 student_info_alumni <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
@@ -46,7 +46,8 @@ student_info <- student_info_alumni %>%
   bind_rows(student_info_std)
 
 student_info <- student_info %>% 
-  mutate(student_code = 1:n())
+  mutate(student_code = 1:n()) %>% 
+  as_tibble()
 
 
 student_info_alumni %>% nrow()
@@ -204,15 +205,10 @@ edges <- preschool_network %>%
   bind_rows(college_network) %>% 
   bind_rows(major_network) %>% 
   bind_rows(award_network) %>% 
-  bind_rows(record_network)
+  bind_rows(record_network) %>% 
+  as_tibble()
   
-
-# 분석 대상 선별
-  
-
-
 temp_nodes <- student_info %>% 
-  distinct(student_code) %>% 
   rename(Id = student_code) %>% 
   mutate(Domain = "학생",
          Label = "", 
@@ -225,3 +221,40 @@ nodes <- edges %>%
   bind_rows(temp_nodes) %>% 
   mutate(Label = case_when(Domain == "해외대학파견" ~ "해외대학파견",
                            TRUE ~ Label))
+
+# make nodes 
+write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
+
+# make edges 
+write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
+
+
+############################################################################
+######################### 다양성 분석  ################################
+############################################################################
+
+
+# 분석 활동 설정
+edges_interested <- edges %>% 
+  filter(grepl("성적경고", Domain))
+
+engage_entrophy_raw <- student_info %>% 
+  inner_join(edges_interested, by = c("student_code" = "Source"))
+
+domain = "성별"
+p_expected <- student_info %>% 
+  count_(domain, sort=T) %>% 
+  mutate(p = n / sum(n),
+         q = -log(p))
+         
+p_expected
+
+engage_entrophy_raw %>% 
+  count(성별, sort=T) %>% 
+  mutate(p = n / sum(n),
+         I = -p * log(p)) %>% 
+  
+  summarise(total_p = sum(p),
+            SE = sum(I),
+            GSI = 1 - sum(p^2))
+
