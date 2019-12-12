@@ -1,8 +1,10 @@
 library(tidyverse)
 library(janitor)
 library(widyr)
-library(rstudioapi)
 library(readxl)
+library(Matrix)
+library(widyr)
+library(rstudioapi)
 current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
@@ -156,7 +158,7 @@ record_network <- record_raw %>%
 award_alumni <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
                          sep = "|", stringsAsFactors = FALSE)
 
-award_std <- read.delim("../../../졸업생_학부_상벌정보.txt", header = T,
+award_std <- read.delim("../../../재학생_학부_상벌정보.txt", header = T,
                         sep = "|", stringsAsFactors = FALSE)
 
 award_raw <-  bind_rows(award_alumni, award_std)
@@ -168,9 +170,25 @@ award_network <- award_raw %>%
          Domain = Target,
          Label = 상벌유형) %>% 
   select(Source, Target, Domain, Label) %>% 
+  filter(nchar(Target)!=0)
+
+
+############################################################################
+######################### 학생상담센터 네트워크 ################################
+############################################################################
+
+kuscc_raw <- read_xlsx("../../../재학생_학부_학생상담센터.xlsx")
+
+kuscc_network <- kuscc_raw %>% 
+  inner_join(student_info, by = "식별자") %>% 
+  mutate(Source = student_code,
+         Target = 구분,
+         Domain = Target,
+         Label = 구분) %>% 
+  select(Source, Target, Domain, Label) %>% 
   filter(!is.na(Target))
 
-
+  
 ############################################################################
 ######################### 교환학생 네트워크 ################################
 ############################################################################
@@ -206,10 +224,20 @@ edges <- preschool_network %>%
   bind_rows(major_network) %>% 
   bind_rows(award_network) %>% 
   bind_rows(record_network) %>% 
-  as_tibble()
+  bind_rows(kuscc_network) %>% 
+  as_tibble() %>% 
+  mutate(참여여부 = 1)
   
-temp_nodes <- student_info %>% 
+
+nodes_engagement <- edges %>% 
+  filter(!Domain %in% c("단과대학", "학과")) %>% 
+  reshape2::dcast(Source ~ Domain, value.var = "참여여부") %>% 
+  janitor::clean_names()
+
+nodes_std <-
+student_info %>%
   rename(Id = student_code) %>% 
+  left_join(nodes_engagement, by = c("Id" = "source")) %>% 
   mutate(Domain = "학생",
          Label = "", 
          Source = Id,
@@ -218,9 +246,13 @@ temp_nodes <- student_info %>%
 nodes <- edges %>% 
   distinct(Target, .keep_all = T) %>% 
   rename(Id = Target) %>% 
-  bind_rows(temp_nodes) %>% 
+  bind_rows(nodes_std) %>% 
   mutate(Label = case_when(Domain == "해외대학파견" ~ "해외대학파견",
-                           TRUE ~ Label))
+                           TRUE ~ Label)) %>% 
+  select(-참여여부)
+
+nodes %>% 
+  count(Id, sort=T)
 
 # make nodes 
 write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
