@@ -83,7 +83,8 @@ preschool_network <- preschool_raw %>%
              !is.na(출신교졸업년도)) %>% 
   mutate(Source = student_code,
          Domain = "출신교",
-         Target = 출신교명) %>% 
+         Target = 출신교명,
+         Category = "출신교") %>% 
   select(Source, Target, Domain) %>% 
   mutate(Label = Target)
 
@@ -242,17 +243,17 @@ student_info %>%
          Label = "", 
          Source = Id,
          Id = as.character(Id))
+  
 
 nodes <- edges %>% 
+  mutate(Target = gsub("[[:space:]]", "", Target)) %>% 
   distinct(Target, .keep_all = T) %>% 
   rename(Id = Target) %>% 
   bind_rows(nodes_std) %>% 
   mutate(Label = case_when(Domain == "해외대학파견" ~ "해외대학파견",
                            TRUE ~ Label)) %>% 
-  select(-참여여부)
+  select(-참여여부, -Source)
 
-nodes %>% 
-  count(Id, sort=T)
 
 # make nodes 
 write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
@@ -267,26 +268,76 @@ write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
 
 
 # 분석 활동 설정
-edges_interested <- edges %>% 
-  filter(grepl("성적경고", Domain))
+list_attributes <- c("성별", "학과", "국적", "입학유형")
+list_domains <- unique(edges$Domain)[1:10]
 
-engage_entrophy_raw <- student_info %>% 
-  inner_join(edges_interested, by = c("student_code" = "Source"))
 
-domain = "성별"
-p_expected <- student_info %>% 
-  count_(domain, sort=T) %>% 
-  mutate(p = n / sum(n),
-         q = -log(p))
-         
-p_expected
+activities_interested <- edges %>% 
+  filter(Domain %in% list_domains)
 
-engage_entrophy_raw %>% 
-  count(성별, sort=T) %>% 
-  mutate(p = n / sum(n),
-         I = -p * log(p)) %>% 
+# make empty data frame
+index_list <- data.frame()
+attributes_raw <- data.frame()
+cutoff = 20
+
+for(i in list_attributes) {
+expected_prob <-
+  activities_interested %>% 
+  left_join(student_info, by = c("Source" = "student_code")) %>% 
+  count_(i) %>% 
+  rename(cate = i) %>% 
+  mutate(total_N = sum(n),
+         q = n / total_N) %>% 
+  rename(n_expected  = n)
+
+activities_interested_selected <- activities_interested %>%
+  count(Source, Domain) %>%
+  mutate(total_N = n()) %>% 
+  arrange(Domain, n) %>% 
+  group_by(Domain, n) %>% 
+  mutate(domain_n = n()) %>% 
+  filter(domain_n >= cutoff) %>% 
+  ungroup()
   
-  summarise(total_p = sum(p),
-            SE = sum(I),
-            GSI = 1 - sum(p^2))
+activities_interested_names <- activities_interested_selected %>% 
+  distinct(Domain, n) %>% 
+  mutate(list_name = paste(Domain, n, sep="_")) 
 
+# 개별 속성의 확률 확인용 
+activities_interested_processed <- activities_interested_selected %>% 
+  group_split(Domain, n) %>% 
+  setNames(activities_interested_names$list_name) %>% 
+  map( ~ left_join(.x, student_info, by = c("Source" = "student_code")) %>% 
+         count_(i) %>% 
+         rename(cate = i) %>% 
+         mutate(p = n / sum(n)) %>% 
+         inner_join(expected_prob, by = "cate") %>% 
+         mutate(I = -p * log(p),
+                KLD = -p*log(q) - (-p*log(p)),
+                num_attr = 1:n())) %>% 
+  bind_rows(.id = "domain")
+
+# 지수 계산
+index_list_temp <- activities_interested_processed %>% 
+  group_by(domain) %>% 
+         summarise(Shannon_Entropy = sum(I),
+                   Gini_Simpson_Index = (1 - sum(p^2)),
+                   KLD = sum(KLD),
+                   attribute = i)
+
+# 지수 저장    
+index_list <- rbind(index_list, index_list_temp) %>% 
+  arrange(desc(KLD), domain, attribute)
+
+# 개별 속성 저장
+attributes_raw <- rbind(attributes_raw, activities_interested_processed)
+
+}
+
+
+index_list %>%
+  mutate(broad_cate = str_extract(domain, pattern = ".+(?=_)")) %>%  # 정규식 표현 전방탐색 (?=) 
+  ggplot(aes(Gini_Simpson_Index, KLD, color = attribute)) +
+  geom_point() +
+  facet_wrap(~broad_cate) +
+  geom_text(aes(label = domain), hjust = 1, vjust=1)
