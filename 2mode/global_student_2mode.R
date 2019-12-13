@@ -282,8 +282,7 @@ cutoff = 20
 
 for(i in list_attributes) {
 expected_prob <-
-  activities_interested %>% 
-  left_join(student_info, by = c("Source" = "student_code")) %>% 
+  student_info %>% 
   count_(i) %>% 
   rename(cate = i) %>% 
   mutate(total_N = sum(n),
