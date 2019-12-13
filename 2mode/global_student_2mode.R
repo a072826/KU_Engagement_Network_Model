@@ -10,11 +10,11 @@ setwd(dirname(current_path ))
 getwd()
 source("../../../R_functions/func.r", encoding = 'utf-8')
 
-year_term_tl <- tibble("year_term" = paste(rep(2001:2019, each=2), c("1R", "2R"), sep = "_"),
-                       "Num_year_term" = 1:38)
+year_term_tl <- tibble("year_term" = paste(rep(2000:2019, each=2), c("1R", "2R"), sep = "_"),
+                       "Num_year_term" = 1:40)
 
-year_term_tl <- tibble(year = rep(2001:2020, each = 2),
-                       term = rep(c("1R", "2R"), 20)) %>% 
+year_term_tl <- tibble(year = rep(2000:2020, each = 2),
+                       term = rep(c("1R", "2R"), 21)) %>% 
   mutate(date = case_when(term == "1R" ~ "01/03",
                           TRUE ~ "01/09"),
          date = paste0(date,"/",year),
@@ -34,15 +34,16 @@ student_info_alumni <- read.delim("../../../졸업생_학부_기본정보.txt", 
   filter(졸업년도 > 2010) %>% 
   filter(입학년도 >= 2000)   %>% 
   left_join(학과정보, by = "학과코드") %>% 
-  filter(캠퍼스구분 == 1)
+  mutate(학적상태 = "졸업") %>% 
+  filter(캠퍼스구분 == 1) 
 
 
 student_info_std <- read.delim("../../../재학생_학부_기본정보.txt", header = T,
                                sep = "|", stringsAsFactors = FALSE) %>% 
   filter(입학년도 %in% c(2001:2019)) %>% 
   left_join(학과정보, by = "학과코드") %>% 
+  mutate(학적상태 = "재학") %>% 
   filter(캠퍼스구분 == 1)
-
 
 student_info <- student_info_alumni %>% 
   bind_rows(student_info_std)
@@ -52,19 +53,19 @@ student_info <- student_info %>%
   as_tibble()
 
 
-student_info_alumni %>% nrow()
-student_info_std %>% nrow()
-student_info %>% nrow()
-
 
 ############################################################################
 ######################### 입학전형 네트워크 ################################
 ############################################################################
 
-ent_network <- student_info %>% 
-  select(입학유형, student_code) %>% 
+network_ent <- student_info %>% 
+  select(student_code, 입학유형, 입학년도) %>% 
   mutate(Domain = "입학유형") %>% 
-  rename(Source = student_code, Target = 입학유형) %>% 
+  
+  rename(Source = student_code, 
+         Target = 입학유형,
+         Year = 입학년도
+         ) %>% 
   mutate(Label = Target)
 
 
@@ -77,7 +78,7 @@ ent_network <- student_info %>%
 preschool_raw <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
                             sep = "|", stringsAsFactor = F) 
 
-preschool_network <- preschool_raw %>% 
+network_preschool <- preschool_raw %>% 
   inner_join(student_info, by = "식별자") %>% 
   filter(출신교명 != "",
              !is.na(출신교졸업년도)) %>% 
@@ -85,56 +86,107 @@ preschool_network <- preschool_raw %>%
          Domain = "출신교",
          Target = 출신교명,
          Category = "출신교") %>% 
-  select(Source, Target, Domain) %>% 
-  mutate(Label = Target)
+  mutate(year_term = paste(입학년도, 입학학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  select(Source, Target, Num_year_term, Domain) %>% 
+  mutate(Label = Target) %>% 
+  as_tibble()
 
 
 ############################################################################
 ######################### 학과 네트워크 ################################
 ############################################################################
 
-major_network <- student_info %>% 
-  select(학과, student_code) %>% 
+network_major <- student_info %>% 
   mutate(Domain = "학과") %>% 
-  rename(Source = student_code, Target = 학과) %>% 
-  mutate(Label = Target)
+  rename(Source = student_code, 
+         Target = 학과) %>% 
+  mutate(year_term = paste(입학년도, 입학학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  select(Source, Target, Num_year_term, Domain) %>% 
+  mutate(Label = Target) %>% 
+  as_tibble()
 
 
 ############################################################################
 ######################### 단과대학 네트워크 ################################
 ############################################################################
 
-college_network <- student_info %>% 
-  select(대학, student_code) %>% 
-  mutate(Domain = "단과대학") %>% 
-  rename(Source = student_code, Target = 대학) %>% 
-  mutate(Label = Target)
+network_college <- student_info %>% 
+  mutate(Domain = "대학") %>% 
+  rename(Source = student_code, 
+         Target = 대학) %>% 
+  mutate(year_term = paste(입학년도, 입학학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  select(Source, Target, Num_year_term, Domain) %>% 
+  mutate(Label = Target) %>% 
+  as_tibble()
+
 
 
 ############################################################################
 ######################### 학적변동 네트워크 ################################
 ############################################################################
 
+
 record_alumni <- read.delim("../../../졸업생_학부_학적변동내역.txt", header = T,
                            sep = "|", stringsAsFactors = FALSE)
-
-record_std <- read.delim("../../../졸업생_학부_학적변동내역.txt", header = T,
+record_std <- read.delim("../../../재학생_학부_학적변동내역.txt", header = T,
                         sep = "|", stringsAsFactors = FALSE)
 
-record_raw <-  bind_rows(record_alumni, record_std)
-
-record_network <- record_raw %>% 
+record_raw <-  bind_rows(record_alumni, record_std) %>% 
   inner_join(student_info, by = "식별자") %>% 
-  filter(!grepl("복학", 변동유형)) %>% 
+  mutate(year_term = paste(년도, 학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  as_tibble()
+
+network_leaveOfAbsence <-
+record_raw %>% 
+  filter(grepl("휴학|복학", 변동유형)) %>% 
+  select(student_code, Num_year_term, 변동유형) %>% 
+  arrange(student_code, Num_year_term) %>% 
+
+  # 휴학한 학기를 추출함 
+  group_by(student_code, idx = cumsum(grepl("복학|제적", 변동유형))) %>%   
+  mutate(count = 1:n()) %>% 
+  group_by(student_code, idx, 변동유형) %>% 
+  summarise(Num_year_term = min(Num_year_term)) %>% 
+  ungroup() %>% 
+  arrange(student_code, Num_year_term) %>% 
+  mutate(idx = ifelse(grepl("복학|제적", 변동유형), idx-1, idx))  %>% 
+  # 휴학유형 구분 (군복무 vs. 일반)
+  mutate(휴학유형 = ifelse(grepl("군", 변동유형), "군복무", "일반")) %>% 
+  group_by(student_code, idx, 휴학유형) %>% 
+  summarise(start = min(Num_year_term),
+         end = max(Num_year_term),
+         휴학기간 = end-start) %>% 
+  uncount(휴학기간) %>% 
+  group_by(student_code, idx) %>% 
+  mutate(Num_year_term = start + row_number()-1) %>% 
+  ungroup() %>% 
+  
+  # Edge 데이터
+  mutate(Source = student_code,
+         Target = paste0(휴학유형, "휴학"),
+         Domain = paste0(휴학유형, "휴학"),
+         Label = paste0(휴학유형, "휴학")) %>% 
+  select(Source, Target, Domain, Num_year_term, Label)
+
+# 휴학 제외 학적 
+
+network_record <- record_raw %>% 
+  filter(!grepl("휴학|복학|휴학경과제적", 변동유형)) %>% 
+  select(student_code, Num_year_term, 변동유형) %>% 
+  arrange(student_code, Num_year_term) %>%
   mutate(Source = student_code,
          Target = 변동유형,
          Domain = 변동유형,
          Label = 변동유형) %>% 
-  select(Source, Target, Domain, Label) %>% 
-  filter(!is.na(Target))
-
-
-
+  select(Source, Target, Domain, Num_year_term, Label)
 
 ############################################################################
 ######################### 장학금 네트워크 ################################
@@ -161,16 +213,20 @@ award_alumni <- read.delim("../../../졸업생_학부_상벌정보.txt", header 
 
 award_std <- read.delim("../../../재학생_학부_상벌정보.txt", header = T,
                         sep = "|", stringsAsFactors = FALSE)
+ 
+award_raw <-  bind_rows(award_alumni, award_std) %>% 
+  mutate(year_term = paste(년도, 학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  as_tibble()
 
-award_raw <-  bind_rows(award_alumni, award_std)
-
-award_network <- award_raw %>% 
+network_award <- award_raw %>% 
   inner_join(student_info, by = "식별자") %>% 
   mutate(Source = student_code,
          Target = 상벌유형,
          Domain = Target,
          Label = 상벌유형) %>% 
-  select(Source, Target, Domain, Label) %>% 
+  select(Source, Target, Domain, Num_year_term, Label) %>% 
   filter(nchar(Target)!=0)
 
 
@@ -178,18 +234,10 @@ award_network <- award_raw %>%
 ######################### 학생상담센터 네트워크 ################################
 ############################################################################
 
-kuscc_raw <- read_xlsx("../../../재학생_학부_학생상담센터.xlsx")
+# 학기 데이터 필요
+# kuscc_raw <- read_xlsx("../../../재학생_학부_학생상담센터.xlsx")
 
-kuscc_network <- kuscc_raw %>% 
-  inner_join(student_info, by = "식별자") %>% 
-  mutate(Source = student_code,
-         Target = 구분,
-         Domain = Target,
-         Label = 구분) %>% 
-  select(Source, Target, Domain, Label) %>% 
-  filter(!is.na(Target))
 
-  
 ############################################################################
 ######################### 교환학생 네트워크 ################################
 ############################################################################
@@ -218,15 +266,16 @@ kuscc_network <- kuscc_raw %>%
 ############################################################################
 
 # 엣지 합치기
-edges <- preschool_network %>% 
-  # bind_rows(exchange_network) %>% 
-  # bind_rows(course_history_network) %>% 
-  bind_rows(college_network) %>% 
-  bind_rows(major_network) %>% 
-  bind_rows(award_network) %>% 
-  bind_rows(record_network) %>% 
-  bind_rows(kuscc_network) %>% 
+edges <- network_preschool %>% 
+  # bind_rows(network_exchange) %>% 
+  # bind_rows(network_course_history) %>% 
+  bind_rows(network_college) %>% 
+  bind_rows(network_major) %>% 
+  bind_rows(network_award) %>% 
+  bind_rows(network_record) %>% 
+  bind_rows(network_leaveOfAbsence) %>% 
   as_tibble() %>% 
+  mutate(Target = gsub("[[:space:]]", "", Target)) %>% 
   mutate(참여여부 = 1)
   
 
@@ -246,7 +295,6 @@ student_info %>%
   
 
 nodes <- edges %>% 
-  mutate(Target = gsub("[[:space:]]", "", Target)) %>% 
   distinct(Target, .keep_all = T) %>% 
   rename(Id = Target) %>% 
   bind_rows(nodes_std) %>% 
@@ -262,14 +310,45 @@ write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
 write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
 
 
+
+
+
 ############################################################################
 ######################### 다양성 분석  ################################
 ############################################################################
 
 
+
+#####################################
+####### 당학기 재학생 분석  #########
+#####################################
+
+
+student_info_by_semester <- student_info %>% 
+  mutate(ent_year_term = paste(입학년도, 입학학기, sep="_"),
+         grd_year_term = paste(졸업년도, 졸업학기, sep="_")) %>% 
+  left_join(year_term_tl[,4:5], by = c("ent_year_term" = "year_term")) %>% 
+  left_join(year_term_tl[,4:5], by = c("grd_year_term" = "year_term"))  %>% 
+  mutate(재학기간 = case_when(학적상태=="재학" ~ 40 + 1 - Num_year_term.x,
+                              학적상태=="졸업" ~ Num_year_term.y +1 - Num_year_term.x)) %>% 
+  
+  rename(Num_ent_year_term = Num_year_term.x,
+           Num_grd_year_term = Num_year_term.y) %>% 
+    
+  # 년도_학기별 재학생
+  uncount(재학기간) %>% 
+  group_by(student_code) %>% 
+  mutate(Num_year_term = Num_ent_year_term + row_number()-1) %>% 
+  
+  # 휴학 기간 포함 인원 제거
+  anti_join(network_leaveOfAbsence, by = c("student_code" = "Source", "Num_year_term"))
+  
+
 # 분석 활동 설정
-list_attributes <- c("성별", "학과", "국적", "입학유형")
-list_domains <- unique(edges$Domain)[1:10]
+list_attributes <- c("성별", "학과", "국적", "입학유형", "대학")
+list_domains <- c("학기우등생", "학기최우등생", "성적경고",
+                  "성적경고해제", "조기졸업", "수료",
+                  "교환학생(국외)", "이중전공포기")
 
 
 activities_interested <- edges %>% 
@@ -278,65 +357,129 @@ activities_interested <- edges %>%
 # make empty data frame
 index_list <- data.frame()
 attributes_raw <- data.frame()
-cutoff = 20
+cutoff_n = 20
+cutoff_year = 23 # 2011_1R
 
 for(i in list_attributes) {
 expected_prob <-
-  student_info %>% 
+  student_info_by_semester %>%
+  group_by(Num_year_term) %>% 
   count_(i) %>% 
   rename(cate = i) %>% 
   mutate(total_N = sum(n),
          q = n / total_N) %>% 
-  rename(n_expected  = n)
+  rename(n_expected  = n) %>% 
+  filter(Num_year_term >= cutoff_year)
 
 activities_interested_selected <- activities_interested %>%
-  count(Source, Domain) %>%
-  mutate(total_N = n()) %>% 
-  arrange(Domain, n) %>% 
-  group_by(Domain, n) %>% 
-  mutate(domain_n = n()) %>% 
-  filter(domain_n >= cutoff) %>% 
-  ungroup()
+  select(-참여여부) %>% 
+  group_by(Num_year_term, Domain) %>% 
+  mutate(N_domain = n()) %>% 
+  filter(N_domain >= cutoff_n,
+         Num_year_term >= cutoff_year) %>% 
+  ungroup() 
   
 activities_interested_names <- activities_interested_selected %>% 
-  distinct(Domain, n) %>% 
-  mutate(list_name = paste(Domain, n, sep="_")) 
+  distinct(list_name = paste(Domain, Num_year_term, sep="_")) 
 
 # 개별 속성의 확률 확인용 
-activities_interested_processed <- activities_interested_selected %>% 
-  group_split(Domain, n) %>% 
-  setNames(activities_interested_names$list_name) %>% 
-  map( ~ left_join(.x, student_info, by = c("Source" = "student_code")) %>% 
-         count_(i) %>% 
-         rename(cate = i) %>% 
-         mutate(p = n / sum(n)) %>% 
-         inner_join(expected_prob, by = "cate") %>% 
-         mutate(I = -p * log(p),
-                KLD = -p*log(q) - (-p*log(p)),
-                num_attr = 1:n())) %>% 
-  bind_rows(.id = "domain")
+activities_interested_processed <- activities_interested_selected %>%  
+  group_by(Domain, Num_year_term) %>% 
+  left_join(student_info, by = c("Source" = "student_code")) %>% 
+  count_(i) %>% 
+  rename(cate = i) %>% 
+  mutate(p = n / sum(n)) %>% 
+  inner_join(expected_prob, by = c("cate", "Num_year_term")) %>% 
+  mutate(
+    I = -p * log(p),
+    KLD = -p * log(q) - (-p * log(p)),
+    num_attr = 1:n())
+
 
 # 지수 계산
-index_list_temp <- activities_interested_processed %>% 
-  group_by(domain) %>% 
+index_list_temp <- activities_interested_processed %>%
+  group_by(Domain, Num_year_term) %>% 
          summarise(Shannon_Entropy = sum(I),
                    Gini_Simpson_Index = (1 - sum(p^2)),
                    KLD = sum(KLD),
                    attribute = i)
 
 # 지수 저장    
-index_list <- rbind(index_list, index_list_temp) %>% 
-  arrange(desc(KLD), domain, attribute)
+index_list <- index_list %>% 
+  bind_rows(index_list_temp) %>% 
+  arrange(desc(KLD), Domain, attribute)
 
 # 개별 속성 저장
-attributes_raw <- rbind(attributes_raw, activities_interested_processed)
+attributes_raw <- attributes_raw %>% 
+  bind_rows(activities_interested_processed)
 
 }
 
+index_list <- index_list %>% 
+  left_join(year_term_tl[,4:5], by = "Num_year_term")
+
+attributes_raw <- attributes_raw %>% 
+  left_join(year_term_tl[,4:5], by = "Num_year_term")
+
 
 index_list %>%
-  mutate(broad_cate = str_extract(domain, pattern = ".+(?=_)")) %>%  # 정규식 표현 전방탐색 (?=) 
-  ggplot(aes(Gini_Simpson_Index, KLD, color = attribute)) +
-  geom_point() +
-  facet_wrap(~broad_cate) +
-  geom_text(aes(label = domain), hjust = 1, vjust=1)
+  ggplot(aes(Num_year_term, Gini_Simpson_Index, 
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(size = 4, shape = 21) +
+  facet_wrap(~Domain) +
+  scale_fill_brewer(palette = "Spectral")
+
+index_list %>%
+  ggplot(aes(Num_year_term, Shannon_Entropy, 
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(size = 4, shape = 21) +
+  facet_wrap(~Domain, scales = "free_y") +
+  scale_fill_brewer(palette = "Spectral")
+
+
+
+index_list %>%
+  ggplot(aes(Num_year_term, Gini_Simpson_Index, 
+             fill = Domain, group = Domain)) +
+  geom_line() +
+  geom_point(size = 4, shape = 21) +
+  facet_wrap(~attribute) +
+  scale_fill_brewer(palette = "Spectral")
+
+
+
+index_list %>%
+  ggplot(aes(Num_year_term, KLD, 
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(size = 4, shape = 21) +
+  facet_wrap(~Domain) +
+  scale_fill_brewer(palette = "Spectral")
+
+
+
+library(gganimate)
+
+animate <- index_list %>%
+  ggplot(aes(Gini_Simpson_Index, KLD, fill = attribute,
+             color = attribute)) +
+  geom_point(aes(group = seq_along(Num_year_term)), size = 4, shape = 21, color = "black") +
+  geom_line(size = 1) +
+  facet_wrap(~Domain, scales = "free_y") +
+  scale_fill_brewer(palette = "Spectral") +
+  scale_color_brewer(palette = "Spectral") +
+  transition_reveal(Num_year_term)
+
+anim_save(animate, filename = "귀여운.gif", height = 1000, width =1000, res=60)
+
+
+index_list %>%
+  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, fill = attribute,
+             color = attribute)) +
+  geom_point(aes(group = seq_along(Num_year_term)), size = 4, shape = 21, color = "black") +
+  geom_line(size = 1) +
+  facet_wrap(~Domain, scales = "free_y") +
+  scale_fill_brewer(palette = "Spectral") +
+  scale_color_brewer(palette = "Spectral")
