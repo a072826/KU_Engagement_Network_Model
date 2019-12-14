@@ -304,10 +304,10 @@ nodes <- edges %>%
 
 
 # make nodes 
-write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
+# write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
 
 # make edges 
-write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
+# write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
 
 
 
@@ -463,17 +463,21 @@ index_list %>%
 library(gganimate)
 
 animate <- index_list %>%
-  ggplot(aes(Gini_Simpson_Index, KLD, fill = attribute,
+  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, fill = attribute,
              color = attribute)) +
-  geom_point(aes(group = seq_along(Num_year_term)), size = 4, shape = 21, color = "black") +
+  geom_point(aes(group = seq_along(Num_year_term)), size = 3, shape = 21, color = "black") +
   geom_line(size = 1) +
   facet_wrap(~Domain, scales = "free_y") +
   scale_fill_brewer(palette = "Spectral") +
   scale_color_brewer(palette = "Spectral") +
-  transition_reveal(Num_year_term)
+  theme_minimal() +
+  theme(legend.position = "top") +
+  transition_reveal(Num_year_term) 
+  
 
-anim_save(animate, filename = "귀여운.gif", height = 1000, width =1000, res=60)
 
+animate(animate,  height = 1200, width = 1200, res = 100)
+anim_save("animation3.gif")
 
 index_list %>%
   ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, fill = attribute,
