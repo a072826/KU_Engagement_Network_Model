@@ -318,13 +318,24 @@ nodes <- edges %>%
 ############################################################################
 
 
+#####################################
+####### 기본정보 추가   #########
+#####################################
+
+student_info_for_idx <- student_info %>% 
+  # 출신교 join
+  left_join(network_preschool %>% 
+              select(Source, Target) %>% 
+              rename(출신교 = Target), by = c("student_code" = "Source"))
+# %>% 
+#   mutate(출신교 = ifelse(국적!= "KOR", NA, 출신교))  
+  
+
 
 #####################################
 ####### 당학기 재학생 분석  #########
 #####################################
-
-
-student_info_by_semester <- student_info %>% 
+student_info_by_semester <- student_info_for_idx %>% 
   mutate(ent_year_term = paste(입학년도, 입학학기, sep="_"),
          grd_year_term = paste(졸업년도, 졸업학기, sep="_")) %>% 
   left_join(year_term_tl[,4:5], by = c("ent_year_term" = "year_term")) %>% 
@@ -341,14 +352,16 @@ student_info_by_semester <- student_info %>%
   mutate(Num_year_term = Num_ent_year_term + row_number()-1) %>% 
   
   # 휴학 기간 포함 인원 제거
-  anti_join(network_leaveOfAbsence, by = c("student_code" = "Source", "Num_year_term"))
+  anti_join(network_leaveOfAbsence, by = c("student_code" = "Source", "Num_year_term")) 
   
+  
+
 
 # 분석 활동 설정
 list_attributes <- c("성별", "학과", "국적", "입학유형", "대학")
 list_domains <- c("학기우등생", "학기최우등생", "성적경고",
                   "성적경고해제", "조기졸업", "수료",
-                  "교환학생(국외)", "이중전공포기")
+                  "교환학생(국외)", "이중전공포기", "일반휴학")
 
 
 activities_interested <- edges %>% 
@@ -357,8 +370,8 @@ activities_interested <- edges %>%
 # make empty data frame
 index_list <- data.frame()
 attributes_raw <- data.frame()
-cutoff_n = 20
-cutoff_year = 23 # 2011_1R
+cutoff_n = 0 # 활동당 최소 인원
+cutoff_year = 1 # 시작 시점 2011_1R (23번), 
 
 for(i in list_attributes) {
 expected_prob <-
@@ -385,7 +398,7 @@ activities_interested_names <- activities_interested_selected %>%
 # 개별 속성의 확률 확인용 
 activities_interested_processed <- activities_interested_selected %>%  
   group_by(Domain, Num_year_term) %>% 
-  left_join(student_info, by = c("Source" = "student_code")) %>% 
+  left_join(student_info_for_idx, by = c("Source" = "student_code")) %>% 
   count_(i) %>% 
   rename(cate = i) %>% 
   mutate(p = n / sum(n)) %>% 
@@ -423,67 +436,117 @@ attributes_raw <- attributes_raw %>%
 
 
 index_list %>%
-  ggplot(aes(Num_year_term, Gini_Simpson_Index, 
+  ggplot(aes(year_term, Gini_Simpson_Index, 
              fill = attribute, group = attribute)) +
   geom_line() +
-  geom_point(size = 4, shape = 21) +
+  geom_point(size = 2, shape = 21) +
   facet_wrap(~Domain) +
-  scale_fill_brewer(palette = "Spectral")
-
+  theme_minimal() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90)) +
+  scale_fill_brewer(palette = "Spectral")  +
+  labs(x = "Year")
+   
 index_list %>%
-  ggplot(aes(Num_year_term, Shannon_Entropy, 
+  ggplot(aes(year_term, Shannon_Entropy, 
              fill = attribute, group = attribute)) +
   geom_line() +
-  geom_point(size = 4, shape = 21) +
-  facet_wrap(~Domain, scales = "free_y") +
-  scale_fill_brewer(palette = "Spectral")
-
-
-
-index_list %>%
-  ggplot(aes(Num_year_term, Gini_Simpson_Index, 
-             fill = Domain, group = Domain)) +
-  geom_line() +
-  geom_point(size = 4, shape = 21) +
-  facet_wrap(~attribute) +
-  scale_fill_brewer(palette = "Spectral")
-
-
-
-index_list %>%
-  ggplot(aes(Num_year_term, KLD, 
-             fill = attribute, group = attribute)) +
-  geom_line() +
-  geom_point(size = 4, shape = 21) +
+  geom_point(size = 2, shape = 21) +
   facet_wrap(~Domain) +
-  scale_fill_brewer(palette = "Spectral")
+  theme_minimal() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90)) +
+  scale_fill_brewer(palette = "Spectral")  +
+  labs(x = "Year")
 
 
-
-library(gganimate)
-
-animate <- index_list %>%
-  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, fill = attribute,
-             color = attribute)) +
-  geom_point(aes(group = seq_along(Num_year_term)), size = 3, shape = 21, color = "black") +
-  geom_line(size = 1) +
+index_list %>%
+  ggplot(aes(year_term, KLD, 
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(size = 2, shape = 21) +
   facet_wrap(~Domain, scales = "free_y") +
+  theme_minimal() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90)) +
+  scale_fill_brewer(palette = "Spectral")  +
+  labs(x = "Year")
+
+
+index_list %>%
+  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, color = attribute,
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(aes(group = seq_along(Num_year_term)), 
+             size = 2, shape = 21, color = "black") +
   scale_fill_brewer(palette = "Spectral") +
   scale_color_brewer(palette = "Spectral") +
   theme_minimal() +
-  theme(legend.position = "top") +
-  transition_reveal(Num_year_term) 
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~Domain)
   
 
+library(gganimate)
 
-animate(animate,  height = 1200, width = 1200, res = 100)
-anim_save("animation3.gif")
-
+animate <-
 index_list %>%
-  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, fill = attribute,
-             color = attribute)) +
-  geom_point(aes(group = seq_along(Num_year_term)), size = 4, shape = 21, color = "black") +
-  geom_line(size = 1) +
-  facet_wrap(~Domain, scales = "free_y") +
+  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, color = attribute,
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(aes(group = seq_along(Num_year_term)), # 점들이 순차적으로 등장하게 만들기 위해서 필요
+             size = 2, shape = 21, color = "black", alpha = 0.7) +
   scale_fill_brewer(palette = "Spectral") +
-  scale_color_brewer(palette = "Spectral")
+  scale_color_brewer(palette = "Spectral") +
+  theme_minimal() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~Domain) +
+  transition_reveal(along = Num_year_term) + 
+  # view_follow() +
+  labs(title = "Year: {ceiling(frame_along/2-1)+2000}")
+  
+animate(animate, height = 1000, width = 1000, 
+        res = 100,
+        renderer = gifski_renderer("gganim.gif"))
+
+#################################################################
+# plotly로 animation 만드는 법 
+#################################################################
+# p <- index_list %>%
+#   accumulate_by(~ Num_year_term) %>% 
+#   ggplot(aes(year_term, KLD, 
+#                    fill = attribute)) +
+#   geom_line(aes(frame = frame,group = attribute)) +
+#   geom_point(alpha = 0.7, shape = 21, color="black", size = 3, 
+#              aes(frame=frame)) +
+#   labs(x = "", y = "") + 
+#   theme_minimal() +
+#   theme(legend.position = "none",
+#         axis.text.x = element_text(angle = 45)) + 
+#   scale_fill_brewer(palette = "Spectral") +
+#   facet_wrap(~Domain, scales="free_y") 
+#   
+# ggplotly(p) %>% 
+#   layout(
+#     yaxis = list(
+#       title = "KLD",
+#       zeroline = F
+#     ),
+#     xaxis = list(
+#       zeroline = F, 
+#       showgrid = F
+#     )
+#   ) %>% 
+#   animation_opts(
+#     frame = 100, 
+#     transition = 0, 
+#     easing = "linear",
+#     redraw = FALSE
+#   ) %>%
+#   animation_slider(
+#     hide = T
+#   ) %>%
+#   animation_button(
+#     x = 1, xanchor = "right", y = 0, yanchor = "top"
+#   )
