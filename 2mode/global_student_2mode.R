@@ -34,7 +34,8 @@ student_info_alumni <- read.delim("../../../졸업생_학부_기본정보.txt", 
   filter(졸업년도 > 2010) %>% 
   filter(입학년도 >= 2000)   %>% 
   left_join(학과정보, by = "학과코드") %>% 
-  mutate(학적상태 = "졸업") %>% 
+  mutate(학적상태 = "졸업",
+             생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
   filter(캠퍼스구분 == 1) 
 
 
@@ -42,15 +43,45 @@ student_info_std <- read.delim("../../../재학생_학부_기본정보.txt", hea
                                sep = "|", stringsAsFactors = FALSE) %>% 
   filter(입학년도 %in% c(2001:2019)) %>% 
   left_join(학과정보, by = "학과코드") %>% 
-  mutate(학적상태 = "재학") %>% 
-  filter(캠퍼스구분 == 1)
+  mutate(학적상태 = "재학",
+         생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
+  filter(캠퍼스구분 == 1) 
 
+# DB에서 생년월일에 대한 자료형이 다르기 때문에 각각 따로 처리
 student_info <- student_info_alumni %>% 
-  bind_rows(student_info_std)
-
-student_info <- student_info %>% 
+  bind_rows(student_info_std) %>% 
+  mutate(나이 = (입학년도 - 생년월일) +1 ) %>% 
   mutate(student_code = 1:n()) %>% 
   as_tibble()
+
+
+############################################################################
+######################### 학년 및 나이 네트워크  ################################
+############################################################################
+school_year_age_raw <- read.delim("../../../전체_학부_학년.txt", header = T,
+                              sep = "|", stringsAsFactors = FALSE) %>% 
+  inner_join(student_info %>% 
+               select(식별자, student_code, 나이, 입학년도), by = "식별자") %>%
+  mutate(학년 = ifelse(!학년%in%c(1:5), NA, 학년)) %>% 
+  mutate(나이 = 나이 + (년도 - 입학년도)) %>% 
+  mutate(year_term = paste(년도, 학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  arrange(년도, 학기) %>%
+  # 2015년2학기(학년 = 0), 2017년 자료 (학년 = -9)라는 문제 있음  
+  group_by(식별자) %>%
+  fill(학년, .direction = "downup") %>% 
+  ungroup() %>% 
+  as_tibble()
+
+network_school_year_age <- school_year_age_raw %>%
+  pivot_longer(cols = c("학년", "나이"), names_to = "Domain", values_to = "Target") %>% 
+  mutate(Target = as.character(Target)) %>% 
+  rename(Source = student_code) %>% 
+  select(Source, Target, Num_year_term, Domain) %>% 
+  mutate(Label = Target) %>% 
+  as_tibble()
+
 
 
 
@@ -137,16 +168,18 @@ record_alumni <- read.delim("../../../졸업생_학부_학적변동내역.txt", 
 record_std <- read.delim("../../../재학생_학부_학적변동내역.txt", header = T,
                         sep = "|", stringsAsFactors = FALSE)
 
+# 학적변동 자료 join
 record_raw <-  bind_rows(record_alumni, record_std) %>% 
   inner_join(student_info, by = "식별자") %>% 
   mutate(year_term = paste(년도, 학기, sep="_")) %>% 
   left_join(year_term_tl %>% 
-              select(year_term, Num_year_term), by = "year_term") %>% 
+            select(year_term, Num_year_term), by = "year_term") %>% 
   as_tibble()
+
 
 network_leaveOfAbsence <-
 record_raw %>% 
-  filter(grepl("휴학|복학", 변동유형)) %>% 
+  filter(grepl("휴학|복학", 변동유형)) %>%  # 학적 변동 중 휴학 및 복학만 활용
   select(student_code, Num_year_term, 변동유형) %>% 
   arrange(student_code, Num_year_term) %>% 
 
@@ -169,15 +202,15 @@ record_raw %>%
   mutate(Num_year_term = start + row_number()-1) %>% 
   ungroup() %>% 
   
-  # Edge 데이터
+  # 휴학 Edge 데이터
   mutate(Source = student_code,
          Target = paste0(휴학유형, "휴학"),
          Domain = paste0(휴학유형, "휴학"),
          Label = paste0(휴학유형, "휴학")) %>% 
   select(Source, Target, Domain, Num_year_term, Label)
 
-# 휴학 제외 학적 
 
+# 휴학 제외 학적변동
 network_record <- record_raw %>% 
   filter(!grepl("휴학|복학|휴학경과제적", 변동유형)) %>% 
   select(student_code, Num_year_term, 변동유형) %>% 
@@ -194,13 +227,37 @@ network_record <- record_raw %>%
 
 # 어떻게 활용할 지 좀 더 고민해보자
 
-# scholarship_alumni <- read.delim("../../../졸업생_학부_장학금수혜.txt", header = T,
-#                          sep = "|", stringsAsFactors = FALSE)
-# 
-# scholarship_std <- read.delim("../../../졸업생_학부_장학금수혜.txt", header = T,
-#                         sep = "|", stringsAsFactors = FALSE)
-# 
-# scholarship_raw <-  bind_rows(scholarship_alumni, scholarship_std)
+scholarship_alumni <- read.delim("../../../졸업생_학부_장학금수혜.txt", header = T,
+                         sep = "|", stringsAsFactors = FALSE)
+
+scholarship_std <- read.delim("../../../재학생_학부_장학금수혜.txt", header = T,
+                        sep = "|", stringsAsFactors = FALSE)
+
+scholarship_raw <- bind_rows(scholarship_alumni, scholarship_std) %>% 
+  as_tibble() %>% 
+  mutate(입학금 = abs(입학금),
+         등록금 = abs(등록금),
+         기타금액 = abs(기타금액),
+         기성회비 = replace_na(기성회비, 0),  
+         입학금 = replace_na(입학금, 0),  
+         등록금 = replace_na(등록금, 0),  
+         기타금액 = replace_na(기타금액, 0),  
+         수혜금액 = 기성회비 + 입학금 + 등록금 + 기타금액)  %>% 
+  filter(grepl("^성적우수장학금\\(|진리형|진리장학금",장학금명)) 
+
+
+network_scholarship <- scholarship_raw %>% 
+  inner_join(student_info, by = "식별자") %>% 
+  mutate(year_term = paste(년도, 학기, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  select(student_code, Num_year_term, 장학금명) %>% 
+  arrange(student_code, Num_year_term) %>%
+  mutate(Source = student_code,
+         Target = 장학금명,
+         Domain = "장학금수혜",
+         Label = 장학금명) %>% 
+  select(Source, Target, Domain, Num_year_term, Label)
 
 
 ############################################################################
@@ -220,6 +277,7 @@ award_raw <-  bind_rows(award_alumni, award_std) %>%
               select(year_term, Num_year_term), by = "year_term") %>% 
   as_tibble()
 
+
 network_award <- award_raw %>% 
   inner_join(student_info, by = "식별자") %>% 
   mutate(Source = student_code,
@@ -235,8 +293,26 @@ network_award <- award_raw %>%
 ############################################################################
 
 # 학기 데이터 필요
-# kuscc_raw <- read_xlsx("../../../재학생_학부_학생상담센터.xlsx")
+kuscc_raw <- read_xlsx("../../../전체_학부_학생상담센터.xlsx") %>% 
+  distinct(year, term, group, 식별자) %>% 
+  mutate(year_term = paste(year, term, sep="_")) %>% 
+  left_join(year_term_tl %>% 
+              select(year_term, Num_year_term), by = "year_term") %>% 
+  group_by(group) %>% 
+  mutate(n_group = n()) %>% 
+  filter(n_group > 10) %>% 
+  ungroup()
+   
+network_kuscc <- kuscc_raw %>% 
+  inner_join(student_info, by = "식별자") %>% 
+  mutate(Source = student_code,
+         Target = group,
+         Domain = "학생상담센터",
+         Label = group) %>% 
+  select(Source, Target, Domain, Num_year_term, Label) %>% 
+  filter(nchar(Target)!=0)
 
+  
 
 ############################################################################
 ######################### 교환학생 네트워크 ################################
@@ -267,25 +343,30 @@ network_award <- award_raw %>%
 
 # 엣지 합치기
 edges <- network_preschool %>% 
-  # bind_rows(network_exchange) %>% 
+  bind_rows(network_school_year_age) %>%
+  bind_rows(network_scholarship) %>%
+  # bind_rows(network_exchange) %>%
   # bind_rows(network_course_history) %>% 
   bind_rows(network_college) %>% 
   bind_rows(network_major) %>% 
   bind_rows(network_award) %>% 
   bind_rows(network_record) %>% 
   bind_rows(network_leaveOfAbsence) %>% 
+  bind_rows(network_kuscc) %>% 
   as_tibble() %>% 
   mutate(Target = gsub("[[:space:]]", "", Target)) %>% 
-  mutate(참여여부 = 1)
+  mutate(참여여부 = 1) 
   
 
 nodes_engagement <- edges %>% 
-  filter(!Domain %in% c("단과대학", "학과")) %>% 
+  filter(!Domain %in% c("출신교", "대학", "학과", "성별", "나이", "학년")) %>% 
   reshape2::dcast(Source ~ Domain, value.var = "참여여부") %>% 
-  janitor::clean_names()
+  janitor::clean_names() %>% 
+  as_tibble()
 
-nodes_std <-
-student_info %>%
+
+nodes_std <- 
+  student_info %>% 
   rename(Id = student_code) %>% 
   left_join(nodes_engagement, by = c("Id" = "source")) %>% 
   mutate(Domain = "학생",
@@ -295,18 +376,18 @@ student_info %>%
   
 
 nodes <- edges %>% 
-  distinct(Target, .keep_all = T) %>% 
+  distinct(Target, Num_year_term, .keep_all = T) %>% 
   rename(Id = Target) %>% 
   bind_rows(nodes_std) %>% 
   mutate(Label = case_when(Domain == "해외대학파견" ~ "해외대학파견",
                            TRUE ~ Label)) %>% 
-  select(-참여여부, -Source)
+  select(-참여여부, -Source, -식별자)
 
 
-# make nodes 
+# # make nodes
 # write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
 
-# make edges 
+# # make edges 
 # write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
 
 
@@ -323,230 +404,227 @@ nodes <- edges %>%
 #####################################
 
 student_info_for_idx <- student_info %>% 
-  # 출신교 join
+  # 출신교 join: 해외학교 및 편입 제외
   left_join(network_preschool %>% 
               select(Source, Target) %>% 
-              rename(출신교 = Target), by = c("student_code" = "Source"))
+              rename(출신교 = Target), by = c("student_code" = "Source")) %>% 
+  mutate(출신교 = case_when((국적=="KOR" & !grepl("편입", 입학유형)) ~ 출신교,
+                           TRUE ~ NA_character_))  
+  
+  
 # %>% 
 #   mutate(출신교 = ifelse(국적!= "KOR", NA, 출신교))  
   
 
 
 #####################################
-####### 당학기 재학생 분석  #########
+####### 당학기 재적생 분석  ######### 
 #####################################
-student_info_by_semester <- student_info_for_idx %>% 
-  mutate(ent_year_term = paste(입학년도, 입학학기, sep="_"),
-         grd_year_term = paste(졸업년도, 졸업학기, sep="_")) %>% 
-  left_join(year_term_tl[,4:5], by = c("ent_year_term" = "year_term")) %>% 
-  left_join(year_term_tl[,4:5], by = c("grd_year_term" = "year_term"))  %>% 
-  mutate(재학기간 = case_when(학적상태=="재학" ~ 40 + 1 - Num_year_term.x,
-                              학적상태=="졸업" ~ Num_year_term.y +1 - Num_year_term.x)) %>% 
-  
-  rename(Num_ent_year_term = Num_year_term.x,
-           Num_grd_year_term = Num_year_term.y) %>% 
-    
-  # 년도_학기별 재학생
-  uncount(재학기간) %>% 
-  group_by(student_code) %>% 
-  mutate(Num_year_term = Num_ent_year_term + row_number()-1) %>% 
-  
-  # 휴학 기간 포함 인원 제거
-  anti_join(network_leaveOfAbsence, by = c("student_code" = "Source", "Num_year_term")) 
-  
-  
 
+student_info_by_semester <- student_info_for_idx %>% 
+  select(-나이) %>% 
+  left_join(network_school_year_age %>% # 나이, 학년 데이터 학기별로 합치기
+              pivot_wider(id_cols = c("Source", "Num_year_term"),
+                          names_from = Domain, values_from = Target), by = c("student_code" = "Source")) %>% 
+
+  anti_join(network_leaveOfAbsence %>% 
+              filter(Target == "군복무휴학"), by = c("student_code" = "Source", "Num_year_term")) 
 
 # 분석 활동 설정
-list_attributes <- c("성별", "학과", "국적", "입학유형", "대학")
+list_attributes <- c("성별", "국적", "출신교",
+                     "대학", "학과", "입학유형", 
+                     "학년", "나이")
+
 list_domains <- c("학기우등생", "학기최우등생", "성적경고",
-                  "성적경고해제", "조기졸업", "수료",
-                  "교환학생(국외)", "이중전공포기", "일반휴학")
+                  "성적경고해제", "학생상담센터", "수료",
+                  "교환학생(국외)", "이중전공포기", "일반휴학", )
 
 
 activities_interested <- edges %>% 
   filter(Domain %in% list_domains)
 
+student_info_by_semester_domain_joined <- student_info_by_semester %>%
+  left_join(activities_interested, by = c("student_code" = "Source", "Num_year_term"))
+
+N_by_domain_by_semester <- student_info_by_semester_domain_joined %>% 
+  filter(!is.na(Domain)) %>% 
+  group_by(Num_year_term, Domain) %>% 
+  summarise(N_by_domain = n()) %>% 
+  filter(N_by_domain >= cutoff_n,
+         Num_year_term >= cutoff_year) %>% 
+  ungroup() 
+
 # make empty data frame
 index_list <- data.frame()
 attributes_raw <- data.frame()
 cutoff_n = 0 # 활동당 최소 인원
-cutoff_year = 1 # 시작 시점 2011_1R (23번), 
+prob_attribute <- data.frame()
 
 for(i in list_attributes) {
-expected_prob <-
-  student_info_by_semester %>%
-  group_by(Num_year_term) %>% 
-  count_(i) %>% 
-  rename(cate = i) %>% 
-  mutate(total_N = sum(n),
-         q = n / total_N) %>% 
-  rename(n_expected  = n) %>% 
-  filter(Num_year_term >= cutoff_year)
-
-activities_interested_selected <- activities_interested %>%
-  select(-참여여부) %>% 
-  group_by(Num_year_term, Domain) %>% 
-  mutate(N_domain = n()) %>% 
-  filter(N_domain >= cutoff_n,
-         Num_year_term >= cutoff_year) %>% 
-  ungroup() 
   
-activities_interested_names <- activities_interested_selected %>% 
-  distinct(list_name = paste(Domain, Num_year_term, sep="_")) 
-
-# 개별 속성의 확률 확인용 
-activities_interested_processed <- activities_interested_selected %>%  
-  group_by(Domain, Num_year_term) %>% 
-  left_join(student_info_for_idx, by = c("Source" = "student_code")) %>% 
-  count_(i) %>% 
-  rename(cate = i) %>% 
-  mutate(p = n / sum(n)) %>% 
-  inner_join(expected_prob, by = c("cate", "Num_year_term")) %>% 
-  mutate(
-    I = -p * log(p),
-    KLD = -p * log(q) - (-p * log(p)),
-    num_attr = 1:n())
-
-
-# 지수 계산
-index_list_temp <- activities_interested_processed %>%
-  group_by(Domain, Num_year_term) %>% 
-         summarise(Shannon_Entropy = sum(I),
-                   Gini_Simpson_Index = (1 - sum(p^2)),
-                   KLD = sum(KLD),
-                   attribute = i)
-
-# 지수 저장    
-index_list <- index_list %>% 
-  bind_rows(index_list_temp) %>% 
-  arrange(desc(KLD), Domain, attribute)
-
-# 개별 속성 저장
-attributes_raw <- attributes_raw %>% 
-  bind_rows(activities_interested_processed)
-
+  expected_prob <-
+    student_info_by_semester %>%
+    group_by(Num_year_term) %>%
+    count_(i) %>% 
+    rename(cate = i, n_expected = n) %>% 
+    filter(!is.na(cate)) %>% 
+    mutate(N_total_expected = sum(n_expected),
+           q = n_expected / N_total_expected)
+    
+  domain_joined <-
+    activities_interested %>%  
+    left_join(student_info_by_semester_domain_joined %>% 
+                select_if(names(.) %in% c(list_attributes, "student_code", "Domain", "Num_year_term")), 
+              by = c("Source" = "student_code", "Num_year_term", "Domain")) %>% 
+    rename(cate = i)
+  
+  # attribute X domain probability
+  for (j in list_domains) {
+    
+    prob_attribute_temp <-
+      domain_joined %>% 
+      filter(Domain == j) %>% 
+      count(cate, Num_year_term) %>% 
+      rename(n_observed = n) %>% 
+      right_join(expected_prob, by = c("cate", "Num_year_term")) %>% 
+      mutate(Domain = j,
+             n_observed = replace_na(n_observed, 0)) %>% 
+      group_by(Num_year_term) %>% 
+      mutate(p = n_observed / sum(n_observed),
+             I = p * log(p),
+             num_attr = 1:n()) %>% 
+      ungroup()     %>% 
+      mutate(cate = as.character(cate),
+             attribute = i)
+    
+    prob_attribute <- prob_attribute %>% 
+      bind_rows(prob_attribute_temp)
+  }
+  
+  
+  # 지수 계산
+  index_list_temp <-
+  prob_attribute %>%
+    group_by(Domain, Num_year_term, attribute) %>% 
+    summarise(Shannon_Entropy = -sum(I, na.rm=T),
+              sump = sum(p),
+              sumq = sum(q),
+              Gini_Simpson_Index = (1 - sum(p^2, na.rm=T)),
+              KLD = sum(I, na.rm=T) - sum(p * log(q), na.rm=T),
+              ) 
+  
+  # 지수 저장    
+  index_list <- index_list %>% 
+    bind_rows(index_list_temp)
+  
+  
 }
 
 index_list <- index_list %>% 
-  left_join(year_term_tl[,4:5], by = "Num_year_term")
-
-attributes_raw <- attributes_raw %>% 
-  left_join(year_term_tl[,4:5], by = "Num_year_term")
+  left_join(year_term_tl[,4:5], by = "Num_year_term") %>% 
+  as_tibble()
 
 
+#####################################################################
+## 시각화 ##########################################################
+#####################################################################
+
+# p <-
 index_list %>%
-  ggplot(aes(year_term, Gini_Simpson_Index, 
-             fill = attribute, group = attribute)) +
-  geom_line() +
-  geom_point(size = 2, shape = 21) +
-  facet_wrap(~Domain) +
-  theme_minimal() +
-  theme(legend.position = "top",
-        axis.text.x = element_text(angle = 90)) +
-  scale_fill_brewer(palette = "Spectral")  +
-  labs(x = "Year")
-   
-index_list %>%
-  ggplot(aes(year_term, Shannon_Entropy, 
-             fill = attribute, group = attribute)) +
-  geom_line() +
-  geom_point(size = 2, shape = 21) +
-  facet_wrap(~Domain) +
-  theme_minimal() +
-  theme(legend.position = "top",
-        axis.text.x = element_text(angle = 90)) +
-  scale_fill_brewer(palette = "Spectral")  +
-  labs(x = "Year")
-
-
-index_list %>%
-  ggplot(aes(year_term, KLD, 
-             fill = attribute, group = attribute)) +
-  geom_line() +
-  geom_point(size = 2, shape = 21) +
-  facet_wrap(~Domain, scales = "free_y") +
-  theme_minimal() +
-  theme(legend.position = "top",
-        axis.text.x = element_text(angle = 90)) +
-  scale_fill_brewer(palette = "Spectral")  +
-  labs(x = "Year")
-
-
-index_list %>%
+  filter(attribute != "출신교") %>% 
+  filter(Num_year_term >= 23 & 
+           Num_year_term != 40) %>% 
+  filter(Domain != "학생상담센터") %>% 
   ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, color = attribute,
              fill = attribute, group = attribute)) +
   geom_line() +
-  geom_point(aes(group = seq_along(Num_year_term)), 
-             size = 2, shape = 21, color = "black") +
-  scale_fill_brewer(palette = "Spectral") +
-  scale_color_brewer(palette = "Spectral") +
-  theme_minimal() +
+  geom_point(size = 3, shape = 21, color = "slateblue",
+             aes(alpha = (Num_year_term - min(Num_year_term) / max(Num_year_term)))) +
+  facet_wrap(~Domain, scales = "free_y") +
+  ggdark::dark_theme_minimal() +
   theme(legend.position = "top",
         axis.text.x = element_text(angle = 90)) +
-  facet_wrap(~Domain)
+  scale_fill_brewer(palette = "Spectral")  +
+  scale_color_brewer(palette = "Spectral")  +
+  guides(alpha = F)
+
+ggsave(p, filename = "gs_s.png", dpi = 300, width = 10, height = 10)
   
 
 library(gganimate)
 
-animate <-
-index_list %>%
-  ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, color = attribute,
+animate <- index_list %>%
+  filter(attribute != "출신교") %>% 
+  filter(Domain != "학생상담센터") %>% 
+  filter(Num_year_term >= 23 & 
+           Num_year_term != 40) %>% 
+  
+  ggplot(aes(Gini_Simpson_Index, KLD, color = attribute,
              fill = attribute, group = attribute)) +
   geom_line() +
-  geom_point(aes(group = seq_along(Num_year_term)), # 점들이 순차적으로 등장하게 만들기 위해서 필요
-             size = 2, shape = 21, color = "black", alpha = 0.7) +
-  scale_fill_brewer(palette = "Spectral") +
-  scale_color_brewer(palette = "Spectral") +
-  theme_minimal() +
-  theme(legend.position = "top",
-        axis.text.x = element_text(angle = 90)) +
+  geom_point(aes(group = seq_along(Num_year_term)),  # 점들이 순차적으로 등장하게 만들기 위해서 필요
+             size = 2, shape = 21, color = "black", alpha = 0.75) +
+  scale_fill_brewer(palette = "Set3") +
+  scale_color_brewer(palette = "Set3") +
+  ggdark::dark_theme_minimal() +
+  # theme(legend.position = "top",
+  #       axis.text.x = element_text(angle = 90)) +
   facet_wrap(~Domain) +
+
   transition_reveal(along = Num_year_term) + 
   # view_follow() +
   labs(title = "Year: {ceiling(frame_along/2-1)+2000}")
   
 animate(animate, height = 1000, width = 1000, 
-        res = 100,
-        renderer = gifski_renderer("gganim.gif"))
+        res = 100, end_pause = 20, 
+        renderer = gifski_renderer("gganim2.gif"))
+
+
+# 엔트로피합 
+
+temp <- index_list %>% 
+  group_by(Domain, Num_year_term, year_term) %>% 
+  summarise(Shannon_Entropy_sum = sum(Shannon_Entropy)) %>% 
+  ungroup() %>% 
+  filter(Num_year_term >= 23) %>% 
+  .accumulate_by(~ Num_year_term) %>% 
+  as_tibble()
+
+
 
 #################################################################
 # plotly로 animation 만드는 법 
 #################################################################
-# p <- index_list %>%
-#   accumulate_by(~ Num_year_term) %>% 
-#   ggplot(aes(year_term, KLD, 
-#                    fill = attribute)) +
-#   geom_line(aes(frame = frame,group = attribute)) +
-#   geom_point(alpha = 0.7, shape = 21, color="black", size = 3, 
-#              aes(frame=frame)) +
+# p <-
+#   temp %>%
+#   ggplot(aes(year_term, Shannon_Entropy_sum, group = Domain, frame = frame,
+#              color = Domain, fill = Domain)) +
+#   geom_line() +
+#   geom_point(alpha = 0.7, shape = 21, color="black", size = 3) +
 #   labs(x = "", y = "") + 
+#   geom_smooth(method = "loess", lty = 2) +
 #   theme_minimal() +
-#   theme(legend.position = "none",
-#         axis.text.x = element_text(angle = 45)) + 
-#   scale_fill_brewer(palette = "Spectral") +
-#   facet_wrap(~Domain, scales="free_y") 
-#   
-# ggplotly(p) %>% 
+#   theme(legend.position = "top",
+#         axis.text.x = element_text(angle = 45)) +
+#   # view_follow() +
+#   scale_fill_brewer(name = "", palette = "Set3") +
+#   scale_color_brewer(name = "", palette = "Set3")
+# 
+# 
+# ggplotly(p) %>%
 #   layout(
 #     yaxis = list(
-#       title = "KLD",
+#       title = "Shannon_Entropy 합",
 #       zeroline = F
 #     ),
 #     xaxis = list(
-#       zeroline = F, 
+#       zeroline = F,
 #       showgrid = F
 #     )
-#   ) %>% 
+#   ) %>%
 #   animation_opts(
-#     frame = 100, 
-#     transition = 0, 
+#     frame = 100,
+#     transition = 0,
 #     easing = "linear",
 #     redraw = FALSE
-#   ) %>%
-#   animation_slider(
-#     hide = T
-#   ) %>%
-#   animation_button(
-#     x = 1, xanchor = "right", y = 0, yanchor = "top"
 #   )
