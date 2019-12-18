@@ -10,6 +10,19 @@ setwd(dirname(current_path ))
 getwd()
 source("../../../R_functions/func.r", encoding = 'utf-8')
 
+
+################
+.accumulate_by <- function(dat, var) {
+  var <- lazyeval::f_eval(var, dat)
+  lvls <- plotly:::getLevels(var)
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+
+
 year_term_tl <- tibble("year_term" = paste(rep(2000:2019, each=2), c("1R", "2R"), sep = "_"),
                        "Num_year_term" = 1:40)
 
@@ -34,8 +47,7 @@ student_info_alumni <- read.delim("../../../졸업생_학부_기본정보.txt", 
   filter(졸업년도 > 2010) %>% 
   filter(입학년도 >= 2000)   %>% 
   left_join(학과정보, by = "학과코드") %>% 
-  mutate(학적상태 = "졸업",
-             생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
+  mutate(생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
   filter(캠퍼스구분 == 1) 
 
 
@@ -43,8 +55,7 @@ student_info_std <- read.delim("../../../재학생_학부_기본정보.txt", hea
                                sep = "|", stringsAsFactors = FALSE) %>% 
   filter(입학년도 %in% c(2001:2019)) %>% 
   left_join(학과정보, by = "학과코드") %>% 
-  mutate(학적상태 = "재학",
-         생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
+  mutate(생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
   filter(캠퍼스구분 == 1) 
 
 # DB에서 생년월일에 대한 자료형이 다르기 때문에 각각 따로 처리
@@ -419,17 +430,58 @@ student_info_for_idx <- student_info %>%
 
 #####################################
 ####### 당학기 재적생 분석  ######### 
-#####################################
+##################################### # 휴학생을 해당 학년 재적인원에 반영할지 고민 필요
+
 
 student_info_by_semester <- student_info_for_idx %>% 
-  select(-나이) %>% 
-  left_join(network_school_year_age %>% # 나이, 학년 데이터 학기별로 합치기
-              pivot_wider(id_cols = c("Source", "Num_year_term"),
-                          names_from = Domain, values_from = Target), by = c("student_code" = "Source")) %>% 
+  filter(입학년도 < 2009)  %>% # 삭제행
+  
+  # 학교 입학 후 졸업할 때까지의 record 생성 
+  mutate(ent_year_term = paste(입학년도, 입학학기, sep="_"),
+         grd_year_term = paste(졸업년도, 졸업학기, sep="_"), 
+         com_year_term = paste(수료년도, 졸업학기, sep="_")) %>% 
+  left_join(year_term_tl[,4:5], by = c("ent_year_term" = "year_term")) %>% 
+  left_join(year_term_tl[,4:5], by = c("grd_year_term" = "year_term"))  %>% 
+  left_join(year_term_tl[,4:5], by = c("com_year_term" = "year_term"))  %>% 
+  rename(Num_year_term_ent = Num_year_term.x,
+         Num_year_term_grd = Num_year_term.y,
+         Num_year_term_com = Num_year_term) %>% 
+  mutate(재학기간 = case_when(!grepl("졸업|조기졸업", 학적상태) ~ as.integer(40 + 1 - Num_year_term_ent), # 현재(2019-2)학기 40
+                              grepl("졸업|조기졸업", 학적상태) ~ as.integer(Num_year_term_grd - Num_year_term_ent))) %>% 
 
+    # 재학 기간만큼 한 학기당 1개씩 행 생성
+  uncount(재학기간) %>% 
+  group_by(student_code) %>% 
+  mutate(Num_year_term = Num_year_term_ent + row_number()-1) %>% 
   anti_join(network_leaveOfAbsence %>% 
-              filter(Target == "군복무휴학"), by = c("student_code" = "Source", "Num_year_term")) 
+              filter(Target == "군복무휴학"), by = c("student_code" = "Source", "Num_year_term")) %>% 
+  left_join(network_school_year_age %>% # 학년 데이터 학기별로 합치기 / 학적 기록 시작 학기 이전 기록 제거 
+              pivot_wider(id_cols = c("Source", "Num_year_term"),
+                          names_from = Domain, values_from = Target) %>% # 학년 데이터만 join 나이 데이터는 추후 직접 계산
+              group_by(Source) %>% 
+              mutate(Num_year_term_record_started = min(Num_year_term)) %>% 
+              ungroup() %>% 
+              select(-나이), by = c("student_code" = "Source", "Num_year_term")) %>% 
+  group_by(student_code) %>%  
+  mutate(재적여부 = case_when(((is.na(졸업년도) & is.na(수료년도)) & is.na(학년))~ "제외",
+                          TRUE ~ "재적")) %>% # 제적 아님. 재적. 해당 학기에 학교에 존재했는지 여부
+  filter(재적여부 == "재적") %>% 
+  fill(Num_year_term_record_started, .direction = "up") %>% # 학적 시작 학기
 
+  # 학기별 학적 기록  
+  mutate(당시학적 = case_when(Num_year_term <  Num_year_term_record_started ~ "입학전",
+                          is.na(Num_year_term_com) ~ "재학중",
+                          Num_year_term < Num_year_term_com ~ "재학중",
+                          !is.na(학년) ~ "재학중",
+                          is.na(학년) ~ "수료")) %>% 
+    filter(당시학적 != "입학전") %>%
+    left_join(year_term_tl %>% select(year, Num_year_term), by = "Num_year_term") %>% 
+    mutate(생년 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
+    mutate(나이 = year - 생년 + 1) %>%   # 학생 생년과 해당 학기 년도를 통해 나이 재계산
+  fill(학년, .direction = "updown") %>%  # 수료 후 학년은 고정
+  select(-재적여부) %>% 
+  ungroup()
+    
 # 분석 활동 설정
 list_attributes <- c("성별", "국적", "출신교",
                      "대학", "학과", "입학유형", 
@@ -437,7 +489,12 @@ list_attributes <- c("성별", "국적", "출신교",
 
 list_domains <- c("학기우등생", "학기최우등생", "성적경고",
                   "성적경고해제", "학생상담센터", "수료",
-                  "교환학생(국외)", "이중전공포기", "일반휴학", )
+                  "교환학생(국외)", "이중전공포기", "일반휴학")
+
+
+list_domains <- c("학기우등생", "학기최우등생", "성적경고",
+                  "성적경고해제", "학생상담센터", "수료",
+                  "교환학생(국외)", "이중전공포기", "일반휴학")
 
 
 activities_interested <- edges %>% 
@@ -446,22 +503,21 @@ activities_interested <- edges %>%
 student_info_by_semester_domain_joined <- student_info_by_semester %>%
   left_join(activities_interested, by = c("student_code" = "Source", "Num_year_term"))
 
+
+
+
 N_by_domain_by_semester <- student_info_by_semester_domain_joined %>% 
   filter(!is.na(Domain)) %>% 
   group_by(Num_year_term, Domain) %>% 
   summarise(N_by_domain = n()) %>% 
-  filter(N_by_domain >= cutoff_n,
-         Num_year_term >= cutoff_year) %>% 
   ungroup() 
 
 # make empty data frame
-index_list <- data.frame()
-attributes_raw <- data.frame()
-cutoff_n = 0 # 활동당 최소 인원
-prob_attribute <- data.frame()
+index_list_raw <- data.frame()  # 최종 Index 계산 결과 저장 
+prob_semester_by_domain <- data.frame() # 
 
 for(i in list_attributes) {
-  
+  print(paste0("attribute: ",i))
   expected_prob <-
     student_info_by_semester %>%
     group_by(Num_year_term) %>%
@@ -477,10 +533,11 @@ for(i in list_attributes) {
                 select_if(names(.) %in% c(list_attributes, "student_code", "Domain", "Num_year_term")), 
               by = c("Source" = "student_code", "Num_year_term", "Domain")) %>% 
     rename(cate = i)
-  
+
+  prob_attribute <- data.frame() # 초기화
   # attribute X domain probability
   for (j in list_domains) {
-    
+    print(paste0("domain : ",j))
     prob_attribute_temp <-
       domain_joined %>% 
       filter(Domain == j) %>% 
@@ -490,7 +547,8 @@ for(i in list_attributes) {
       mutate(Domain = j,
              n_observed = replace_na(n_observed, 0)) %>% 
       group_by(Num_year_term) %>% 
-      mutate(p = n_observed / sum(n_observed),
+      mutate(n_within_attribute = n_distinct(cate[n_observed > 0]),
+             p = n_observed / sum(n_observed),
              I = p * log(p),
              num_attr = 1:n()) %>% 
       ungroup()     %>% 
@@ -503,24 +561,24 @@ for(i in list_attributes) {
   
   
   # 지수 계산
-  index_list_temp <-
-  prob_attribute %>%
-    group_by(Domain, Num_year_term, attribute) %>% 
+  index_list_raw_temp <- prob_attribute %>%
+    group_by(Domain, Num_year_term, attribute, n_within_attribute) %>% 
     summarise(Shannon_Entropy = -sum(I, na.rm=T),
               sump = sum(p),
               sumq = sum(q),
               Gini_Simpson_Index = (1 - sum(p^2, na.rm=T)),
-              KLD = sum(I, na.rm=T) - sum(p * log(q), na.rm=T),
-              ) 
+              KLD = sum(I, na.rm=T) - sum(p * log(q), na.rm=T)) 
   
   # 지수 저장    
-  index_list <- index_list %>% 
-    bind_rows(index_list_temp)
+  index_list_raw <- index_list_raw %>% 
+    bind_rows(index_list_raw_temp)
   
-  
+  # prob 원자료
+  prob_semester_by_domain <- rbind(prob_semester_by_domain, prob_attribute)
 }
 
-index_list <- index_list %>% 
+index_list <- index_list_raw %>% 
+  filter(n_within_attribute != 0) %>% # 해당 학기 해당 attribute 종류가 0개인 경우는 제거
   left_join(year_term_tl[,4:5], by = "Num_year_term") %>% 
   as_tibble()
 
@@ -529,27 +587,54 @@ index_list <- index_list %>%
 ## 시각화 ##########################################################
 #####################################################################
 
-# p <-
+p <-
 index_list %>%
-  filter(attribute != "출신교") %>% 
-  filter(Num_year_term >= 23 & 
-           Num_year_term != 40) %>% 
+  filter(Num_year_term > 13 ) %>% 
   filter(Domain != "학생상담센터") %>% 
+  filter(attribute %in% c("학과", "대학", "성별", "입학유형")) %>% 
   ggplot(aes(Gini_Simpson_Index, Shannon_Entropy, color = attribute,
              fill = attribute, group = attribute)) +
   geom_line() +
-  geom_point(size = 3, shape = 21, color = "slateblue",
-             aes(alpha = (Num_year_term - min(Num_year_term) / max(Num_year_term)))) +
-  facet_wrap(~Domain, scales = "free_y") +
+  geom_point(shape = 21, color = "white",
+             aes(size = n_within_attribute, alpha = (Num_year_term - min(Num_year_term) / max(Num_year_term)))) +
+  facet_wrap(~Domain) +
   ggdark::dark_theme_minimal() +
   theme(legend.position = "top",
         axis.text.x = element_text(angle = 90)) +
   scale_fill_brewer(palette = "Spectral")  +
   scale_color_brewer(palette = "Spectral")  +
-  guides(alpha = F)
+  guides(alpha = F, size = F)
+p
 
 ggsave(p, filename = "gs_s.png", dpi = 300, width = 10, height = 10)
   
+
+index_list %>% 
+  filter(attribute == "학과",
+         Domain == "수료") %>% 
+  arrange(Gini_Simpson_Index) %>% View()
+
+p <-
+  index_list %>%
+  filter(attribute == "성적경고") %>% 
+  filter(Num_year_term >= 23 & 
+           Num_year_term != 40) %>% 
+  filter(Domain != "학생상담센터") %>% 
+  ggplot(aes(Gini_Simpson_Index, KLD, color = attribute,
+             fill = attribute, group = attribute)) +
+  geom_line() +
+  geom_point(shape = 21, color = "slateblue",
+             aes(size = n_within_attribute, alpha = (Num_year_term - min(Num_year_term) / max(Num_year_term)))) +
+  # facet_wrap(~Domain) +
+  ggdark::dark_theme_minimal() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90)) +
+  scale_fill_brewer(palette = "Spectral")  +
+  scale_color_brewer(palette = "Spectral")  +
+  guides(alpha = F, size = F)
+p
+ggsave(p, filename = "gs_s.png", dpi = 300, width = 10, height = 10)
+
 
 library(gganimate)
 
