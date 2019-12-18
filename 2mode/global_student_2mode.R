@@ -117,8 +117,18 @@ network_ent <- student_info %>%
 
 # 졸업 년도에 따른 가중치 고려?
 
-preschool_raw <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
-                            sep = "|", stringsAsFactor = F) 
+preschool_alumni <- read.delim("../../../졸업생_학부_출신학교.txt", header=T, 
+                            sep = "|", stringsAsFactor = F) %>% 
+  mutate(출신교졸업년도 = as.numeric(출신교졸업년도))
+
+preschool_std <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
+                            sep = "|", stringsAsFactor = F) %>% 
+  mutate(출신교졸업년도 = as.numeric(출신교졸업년도))
+
+#  자료 join
+preschool_raw <-  bind_rows(preschool_alumni, preschool_std) %>% 
+  as_tibble() %>% 
+  select(-출신교코드)
 
 network_preschool <- preschool_raw %>% 
   inner_join(student_info, by = "식별자") %>% 
@@ -434,7 +444,6 @@ student_info_for_idx <- student_info %>%
 
 
 student_info_by_semester <- student_info_for_idx %>% 
-  filter(입학년도 < 2009)  %>% # 삭제행
   
   # 학교 입학 후 졸업할 때까지의 record 생성 
   mutate(ent_year_term = paste(입학년도, 입학학기, sep="_"),
@@ -481,16 +490,12 @@ student_info_by_semester <- student_info_for_idx %>%
   fill(학년, .direction = "updown") %>%  # 수료 후 학년은 고정
   select(-재적여부) %>% 
   ungroup()
-    
+
+
 # 분석 활동 설정
 list_attributes <- c("성별", "국적", "출신교",
                      "대학", "학과", "입학유형", 
                      "학년", "나이")
-
-list_domains <- c("학기우등생", "학기최우등생", "성적경고",
-                  "성적경고해제", "학생상담센터", "수료",
-                  "교환학생(국외)", "이중전공포기", "일반휴학")
-
 
 list_domains <- c("학기우등생", "학기최우등생", "성적경고",
                   "성적경고해제", "학생상담센터", "수료",
@@ -502,9 +507,6 @@ activities_interested <- edges %>%
 
 student_info_by_semester_domain_joined <- student_info_by_semester %>%
   left_join(activities_interested, by = c("student_code" = "Source", "Num_year_term"))
-
-
-
 
 N_by_domain_by_semester <- student_info_by_semester_domain_joined %>% 
   filter(!is.na(Domain)) %>% 
@@ -609,11 +611,6 @@ p
 ggsave(p, filename = "gs_s.png", dpi = 300, width = 10, height = 10)
   
 
-index_list %>% 
-  filter(attribute == "학과",
-         Domain == "수료") %>% 
-  arrange(Gini_Simpson_Index) %>% View()
-
 p <-
   index_list %>%
   filter(attribute == "성적경고") %>% 
@@ -639,30 +636,32 @@ ggsave(p, filename = "gs_s.png", dpi = 300, width = 10, height = 10)
 library(gganimate)
 
 animate <- index_list %>%
-  filter(attribute != "출신교") %>% 
+  filter(attribute!="출신교") %>% 
   filter(Domain != "학생상담센터") %>% 
-  filter(Num_year_term >= 23 & 
-           Num_year_term != 40) %>% 
-  
+  filter(Num_year_term >= 13 & 
+           Num_year_term < 40) %>% 
+  filter(!(Domain == "수료" & Num_year_term < 23)) %>% 
   ggplot(aes(Gini_Simpson_Index, KLD, color = attribute,
-             fill = attribute, group = attribute)) +
+             fill = attribute, group = attribute,
+             alpha = (Num_year_term - min(Num_year_term) / max(Num_year_term)))) +
   geom_line() +
-  geom_point(aes(group = seq_along(Num_year_term)),  # 점들이 순차적으로 등장하게 만들기 위해서 필요
-             size = 2, shape = 21, color = "black", alpha = 0.75) +
-  scale_fill_brewer(palette = "Set3") +
-  scale_color_brewer(palette = "Set3") +
+  geom_point(aes(group = seq_along(Num_year_term),
+                 size = n_within_attribute),  # 점들이 순차적으로 등장하게 만들기 위해서 필요
+             shape = 21, color = "white") +
+  scale_fill_brewer(name = "속성", palette = "Set3") +
+  scale_color_brewer(name = "속성", palette = "Set3") +
   ggdark::dark_theme_minimal() +
   # theme(legend.position = "top",
   #       axis.text.x = element_text(angle = 90)) +
-  facet_wrap(~Domain) +
-
+  facet_wrap(~Domain, scales = "free_y")  +
+  guides(alpha = F, size = F) +
   transition_reveal(along = Num_year_term) + 
   # view_follow() +
-  labs(title = "Year: {ceiling(frame_along/2-1)+2000}")
+  labs(title = "Year: {ceiling(frame_along/2-1)+2000}_{2 - floor(frame_along)%%2}R")
   
-animate(animate, height = 1000, width = 1000, 
-        res = 100, end_pause = 20, 
-        renderer = gifski_renderer("gganim2.gif"))
+animate(animate, width = 1920, height = 1080,  
+        res = 150, end_pause = 20, nframes = 200,
+        renderer = gifski_renderer("gganim_free_y.gif"))
 
 
 # 엔트로피합 
@@ -675,7 +674,7 @@ temp <- index_list %>%
   .accumulate_by(~ Num_year_term) %>% 
   as_tibble()
 
-
+prob_semester_by_domain
 
 #################################################################
 # plotly로 animation 만드는 법 

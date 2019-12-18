@@ -1,0 +1,35 @@
+---
+title: "KU Engagement Network"
+author: "문기범"
+date: '2019 12 18 '
+output: 
+  pdf_document:
+    fig_caption: yes
+    latex_engine: xelatex
+bibliography: library.bib
+mainfont: NanumGothic
+# csl: apa-5th-edition.csl
+number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## KU engagement Network
+
+계속 계속 하니까 결국 되었다.
+
+arrange is that write?
+
+
+[@Clark1997]
+
+@Clark1997 says that 
+
+\begin{equation}
+\label{eq-abc}
+a + b = c
+\end{equation}
+
+

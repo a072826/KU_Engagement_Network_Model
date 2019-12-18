@@ -1,0 +1,113 @@
+---
+title: "KU_Engagement_Network_Model"
+author: "문기범"
+date: '10.DEC.2019'
+output: 
+  rmdformats::html_clean
+    # css: css.css
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = F,
+	message = F,
+	warning = FALSE,
+	cache = T)
+library(kableExtra)
+
+```
+
+```{r}
+source("global_student_2mode.r", encoding = 'utf-8')
+```
+
+# 분석 자료
+
+```{r}
+student_info %>% nrow() # 명
+```
+
+## 졸업년도별 
+
+```{r}
+
+.frq_plot(student_info %>% 
+            mutate(졸업년도 = as.factor(졸업년도)), 
+          colName = "졸업년도", ggplotly=F)
+```
+
+## 학과별
+
+```{r , layout="l-body-outset}
+library(rmarkdown)
+student_info %>% 
+  count(대학, 학과, sort=T) %>% 
+  kable(format.args=list(big.mark=",")) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  scroll_box(width = "100%", height = "200px")
+```
+
+## 사용 변인
+
+```{r kable}
+
+변수종류 <- c(
+  "생태학적",
+  "교과활동",
+  "비교과 활동"
+)
+
+활용데이터 <- c(
+  "입학년도", "졸업년도", "수료년도", "학과", "단과대학",
+  "입학유형", "출신학교",
+  
+  "학적변동", "장학금수혜","상벌이력", 
+  
+  "해외교환학생파견", 
+  
+)
+
+```
+
+
+<!--chapter:end:analysis.Rmd-->
+
+---
+title: "KU Engagement Network"
+author: "문기범"
+date: '2019 12 18 '
+output: 
+  pdf_document:
+    fig_caption: yes
+    latex_engine: xelatex
+bibliography: library.bib
+mainfont: NanumGothic
+# csl: frontiers.csl
+number_sections: yes
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tinytex)
+knitr::opts_chunk$set(echo = TRUE)
+```
+xaringan::inf_mr()
+
+## KU engagement Network
+이제....한국어? 결국 저장?
+ㅋㅋㅋ사륜안 기능이 뭐지?
+
+No Korean?
+
+<!-- [@Clark1997] -->
+
+\begin{equation}
+\label{eq-abc}
+a + b = c
+\end{equation}
+
+
+
+<!--chapter:end:paper.Rmd-->
+
