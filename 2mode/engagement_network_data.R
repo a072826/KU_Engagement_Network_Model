@@ -396,18 +396,18 @@ edges <- network_preschool %>%
 edges <- edges %>% 
   filter(Num_year_term >= 21) # 2010 1학기 이후
   
+
 nodes_engagement <- edges %>% 
   filter(!Domain %in% c("출신교", "대학", "학과", "성별", "나이", "학년")) %>% 
-  reshape2::dcast(source ~ Domain, value.var = "참여여부") %>% 
+  reshape2::dcast(source ~ Domain) %>% 
   janitor::clean_names() %>% 
   as_tibble()
 
 
 nodes_std <-
   student_info %>% 
-  semi_join(edges, by  = c("student_code" = "source")) %>% 
   rename(Id = student_code) %>% 
-  left_join(nodes_engagement, by = c("Id" = "source")) %>% 
+  inner_join(nodes_engagement, by = c("Id" = "source")) %>% 
   mutate(Domain = "학생",
          Label = "", 
          source = Id,
@@ -442,15 +442,14 @@ nodes <- edges %>%
 ####### 기본정보 추가   #########
 #####################################
 
-student_info_for_idx <- nodes_std %>% 
-  # 출신교 join: 해외학교 및 편입 제외
-  left_join(network_preschool %>% 
-              select(source, Target) %>% 
-              rename(출신교 = Target), by = "source") %>% 
+student_info_for_idx <- nodes_std  %>% 
+   # 출신교 join: 해외학교 및 편입 제외
+  left_join(network_preschool %>%
+              select(source, Target) %>%
+              rename(출신교 = Target), by = "source") %>%
   mutate(출신교 = case_when((국적=="KOR" & !grepl("편입", 입학유형)) ~ 출신교,
-                           TRUE ~ NA_character_))  
+                           TRUE ~ NA_character_))
   
-
 student_info_for_idx %>% 
   distinct(대학) %>% 
   nrow()
@@ -511,9 +510,6 @@ student_info_by_semester <- student_info_for_idx %>%
   ungroup()
 
 
-summary(student_info_by_semester$나이)
-
-
 # student_info_by_semester %>% 
 #   mutate(구분 = ifelse(grepl(pattern = "졸업", x = 학적상태), "졸업", "재학"),
 #          Num_year_term = as.factor(Num_year_term)) %>% 
@@ -532,10 +528,7 @@ list_attributes <- c("성별", "국적", "출신교",
                      "대학", "학과", "입학유형", 
                      "학년", "나이")
 
-list_domains <- c("학기우등생", "학기최우등생", "성적경고",
-                  "성적경고해제", "학생상담센터", "수료",
-                  "교환학생(국외)", "이중전공포기", "일반휴학")
-
+list_domains <- setdiff(unique(edges$Domain), list_attributes)
 
 activities_interested <- edges %>% 
   filter(Domain %in% list_domains)
@@ -559,7 +552,7 @@ for(i in list_attributes) {
   expected_prob <-
     student_info_by_semester %>%
     group_by(Num_year_term) %>%
-    count_(i) %>% 
+    count(i) %>% 
     rename(cate = i, n_expected = n) %>% 
     filter(!is.na(cate)) %>% 
     mutate(N_total_expected = sum(n_expected),
@@ -568,8 +561,8 @@ for(i in list_attributes) {
   domain_joined <-
     activities_interested %>%  
     left_join(student_info_by_semester_domain_joined %>% 
-                select_if(names(.) %in% c(list_attributes, "student_code", "Domain", "Num_year_term")), 
-              by = c("source" = "student_code", "Num_year_term", "Domain")) %>% 
+                select_if(names(.) %in% c(list_attributes, "source", "Num_year_term")), 
+              by = c("source", "Num_year_term")) %>% 
     rename(cate = i)
 
   prob_attribute <- data.frame() # 초기화
@@ -615,9 +608,14 @@ for(i in list_attributes) {
   prob_semester_by_domain <- rbind(prob_semester_by_domain, prob_attribute)
 }
 
+
 index_list <- index_list_raw %>% 
   filter(n_within_attribute != 0) %>% # 해당 학기 해당 attribute 종류가 0개인 경우는 제거
   left_join(year_term_tl[,4:5], by = "Num_year_term") %>% 
   as_tibble()
+
+
+  
+
 
 

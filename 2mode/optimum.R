@@ -1,0 +1,12 @@
+library(tidyverse)
+library(janitor)
+library(widyr)
+library(readxl)
+library(Matrix)
+library(widyr)
+library(rstudioapi)
+current_path = rstudioapi::getActiveDocumentContext()$path
+setwd(dirname(current_path ))
+getwd()
+source("../../../R_functions/func.r", encoding = 'utf-8')
+source("engagement_network_data.r", encoding = 'utf-8')
