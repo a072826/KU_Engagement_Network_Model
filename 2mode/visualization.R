@@ -76,7 +76,6 @@ animate(animate, width = 1920, height = 1080,
 
 
 # 엔트로피합 
-
 temp <- index_list %>% 
   group_by(Domain, Num_year_term, year_term) %>% 
   summarise(Shannon_Entropy_sum = sum(Shannon_Entropy)) %>% 

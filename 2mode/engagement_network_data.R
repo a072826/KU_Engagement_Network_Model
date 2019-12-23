@@ -45,7 +45,7 @@ year_term_tl <- tibble(year = rep(2000:2020, each = 2),
 student_info_alumni <- read.delim("../../../졸업생_학부_기본정보.txt", header = T,
                                 sep = "|", stringsAsFactors = FALSE) %>% 
   filter(졸업년도 >= 2010) %>%
-  filter(입학년도 >= 2006)   %>%
+  filter(입학년도 >= 2000)   %>%
   left_join(학과정보, by = "학과코드") %>% 
   mutate(생년월일 = as.numeric(str_extract(string = (생년월일), "[0-9]{4}"))) %>% 
   filter(캠퍼스구분 == 1) 
@@ -407,7 +407,7 @@ nodes_engagement <- edges %>%
 nodes_std <-
   student_info %>% 
   rename(Id = student_code) %>% 
-  inner_join(nodes_engagement, by = c("Id" = "source")) %>% 
+  left_join(nodes_engagement, by = c("Id" = "source")) %>% 
   mutate(Domain = "학생",
          Label = "", 
          source = Id,
@@ -552,7 +552,7 @@ for(i in list_attributes) {
   expected_prob <-
     student_info_by_semester %>%
     group_by(Num_year_term) %>%
-    count(i) %>% 
+    count_(i) %>% 
     rename(cate = i, n_expected = n) %>% 
     filter(!is.na(cate)) %>% 
     mutate(N_total_expected = sum(n_expected),
