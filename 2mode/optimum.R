@@ -28,8 +28,17 @@ source("engagement_network_data.r", encoding = 'utf-8')
 
 
 # 개방성 측면에서의 다양성
+aa <- edges %>% 
+  distinct(Domain)
+c(criteria)
 
-criteria <- c("성적우수표창", "성적경고") # 학생성공과 관련있는 지표
+criteria <- c("성적우수표창", "성적경고")
+
+criteria <- c("성적우수표창", "성적경고",
+              "수료","이중전공신청", "이중전공포기",
+              "교환학생_국외", "학점교류_국내",
+              "융합전공신청", "융합전공포기") # 학생성공과 관련있는 지표
+
 attributes <- c("성별", "입학유형", "국적")
               
 
@@ -123,6 +132,34 @@ heuristic_d <- attribute_d %>%
   # mutate(졸업년도 = as.numeric(졸업년도))
 
   
+
+heuristic_d %>% 
+  mutate(졸업년도 = as.numeric(졸업년도)) %>% 
+  filter(대학 != "법과대학") %>% 
+  group_by(대학) %>% 
+  mutate(overall_diversity = mean(diversity)) %>% 
+  ungroup() %>% 
+  mutate(대학 = fct_reorder(대학, overall_diversity)) %>% 
+  ggplot(aes(졸업년도, diversity, color = 대학,
+             fill = 대학, group = 대학)) +
+  geom_line() +
+  geom_point(aes(group = seq_along(졸업년도),
+                 size = variety),  # 점들이 순차적으로 등장하게 만들기 위해서 필요
+             shape = 21, color = "white") +
+  scale_fill_manual(name = "대학", values = rev(.colfunc(17, endcolor = "#0078bc"))) +
+  scale_color_manual(name = "대학", values = rev(.colfunc(17, endcolor = "#0078bc"))) +
+  ggdark::dark_theme_minimal() +
+  # theme(legend.position = "top",
+  #       axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~대학)  +
+  guides(alpha = F, size = F) +
+  guides(fill = guide_legend(override.aes = list(size=4, linetype = 0)))
+
+
+
+
+
+
 library(gganimate)
 
 temp_color = colorRampPalette(brewer.pal(11,"Spectral"))(17)
