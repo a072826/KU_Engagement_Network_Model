@@ -131,10 +131,9 @@ heuristic_d <- attribute_d %>%
   ungroup() 
   # mutate(졸업년도 = as.numeric(졸업년도))
 
-  
 
-heuristic_d %>% 
-  mutate(졸업년도 = as.numeric(졸업년도)) %>% 
+p <- heuristic_d %>% 
+  mutate(졸업년도 = as.factor(졸업년도)) %>% 
   filter(대학 != "법과대학") %>% 
   group_by(대학) %>% 
   mutate(overall_diversity = mean(diversity)) %>% 
@@ -149,12 +148,13 @@ heuristic_d %>%
   scale_fill_manual(name = "대학", values = rev(.colfunc(17, endcolor = "#0078bc"))) +
   scale_color_manual(name = "대학", values = rev(.colfunc(17, endcolor = "#0078bc"))) +
   ggdark::dark_theme_minimal() +
-  # theme(legend.position = "top",
-  #       axis.text.x = element_text(angle = 90)) +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 45)) +
   facet_wrap(~대학)  +
   guides(alpha = F, size = F) +
   guides(fill = guide_legend(override.aes = list(size=4, linetype = 0)))
 
+ggsave(p, filename = "heuristic_diversity_by_year.png", dpi = 200, width = 12, height = 10)
 
 
 

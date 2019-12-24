@@ -99,6 +99,21 @@ network_school_year_age <- school_year_age_raw %>%
 rm(school_year_age_raw)
 
 ############################################################################
+######################### 국적 네트워크 ################################
+############################################################################
+
+network_nationality <- student_info %>% 
+  select(student_code, 국적, 입학년도) %>% 
+  mutate(Domain = "국적") %>% 
+  
+  rename(source = student_code, 
+         Target = 국적,
+         Year = 입학년도
+  ) %>% 
+  mutate(Label = Target)
+
+
+############################################################################
 ######################### 입학전형 네트워크 ################################
 ############################################################################
 
@@ -111,6 +126,10 @@ network_ent <- student_info %>%
          Year = 입학년도
          ) %>% 
   mutate(Label = Target)
+
+
+
+
 
 
 ############################################################################
@@ -378,6 +397,7 @@ rm(kuscc_raw)
 
 # 엣지 합치기
 edges <- network_preschool %>% 
+  bind_rows(network_nationality) %>%
   bind_rows(network_school_year_age) %>%
   bind_rows(network_scholarship) %>%
   # bind_rows(network_exchange) %>%
@@ -398,7 +418,7 @@ edges <- edges %>%
   
 
 nodes_engagement <- edges %>% 
-  filter(!Domain %in% c("출신교", "대학", "학과", "성별", "나이", "학년")) %>% 
+  filter(!Domain %in% c("국적", "출신교", "대학", "학과", "성별", "나이", "학년")) %>% 
   reshape2::dcast(source ~ Domain) %>% 
   janitor::clean_names() %>% 
   as_tibble()
@@ -425,8 +445,8 @@ nodes <- edges %>%
 
 # # make nodes
 # write.csv(nodes, file="nodes.csv", fileEncoding = 'utf-8', row.names=F)
-
-# # make edges 
+# 
+# # make edges
 # write.csv(edges, file="edges.csv", fileEncoding = 'utf-8', row.names=F)
 
 
