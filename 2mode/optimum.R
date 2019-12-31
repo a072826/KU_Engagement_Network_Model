@@ -9,7 +9,7 @@ current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
 source("../../../R_functions/func.r", encoding = 'utf-8')
-source("engagement_network_data.r", encoding = 'utf-8')
+source("../../../R_functions/engagement_network_data.r", encoding = 'utf-8')
 
 ###############################################
 # 12-22-2019 criteria 및 attribute 결정 필요##
@@ -33,14 +33,14 @@ criteria <- edges %>%
 
 c(criteria)
 
-criteria <- c("성적우수표창", "성적경고")
+# criteria <- c("성적우수표창", "성적경고")
 
 criteria <- c("성적우수표창", "성적경고",
               "수료","이중전공신청", "이중전공포기",
               "교환학생_국외", "학점교류_국내",
               "융합전공신청", "융합전공포기") # 학생성공과 관련있는 지표
 
-attributes <- c("성별", "입학유형")
+attributes <- c("성별", "국적")
 
 
 
@@ -83,26 +83,22 @@ optimum_temp <- optimum_raw %>%
 
 
 
-w_c <- data.frame(criteria = criteria, importance = c(1, -1))
-
-optimum_raw %>%
-  replace(is.na(.), 0) %>%
-  group_by(element) %>%
-  # mutate(n_within_element = n()) %>%
-  # filter(n_within_element > 1) %>%
-  # group_by(perspective) %>%
-  # mutate(n_within_perspective = n()) %>%
-  # filter(n_within_perspective > n_within_element*2) %>%
-  group_by(대학) %>%
-  nest() %>%
-  mutate(fit = map(data, ~ lm(성적우수표창 ~ element, data = .x)),
-         tidied = map(fit, tidy)) %>%
-  unnest(tidied) %>%
-  filter(term != "(Intercept)")
-
-
-mutate_at(vars(criteria), scale)
-
+# w_c <- data.frame(criteria = criteria, importance = c(1, -1))
+# 
+# optimum_raw %>%
+#   replace(is.na(.), 0) %>%
+#   group_by(element) %>%
+#   # mutate(n_within_element = n()) %>%
+#   # filter(n_within_element > 1) %>%
+#   # group_by(perspective) %>%
+#   # mutate(n_within_perspective = n()) %>%
+#   # filter(n_within_perspective > n_within_element*2) %>%
+#   group_by(대학) %>%
+#   nest() %>%
+#   mutate(fit = map(data, ~ lm(성적우수표창 ~ element, data = .x)),
+#          tidied = map(fit, tidy)) %>%
+#   unnest(tidied) %>%
+#   filter(term != "(Intercept)")
 
 attribute_d <- optimum_temp %>%
   mutate_at(vars(contains("mean")), funs(scale)) %>% # 전체 기록 바탕으로 element별 difference 계산
@@ -112,8 +108,7 @@ attribute_d <- optimum_temp %>%
         column_to_rownames(var = "Num_row") %>%
         proxy::dist(method = "Euclidean") %>%
         as.matrix() %>%
-        reshape2::melt(varnames = c("row", "col")) %>%
-        filter(row > col)) %>%
+        reshape2::melt(varnames = c("row", "col"))) %>%
   map_df(~as.data.frame(.x), .id = "perspective") %>%
   left_join(element_p %>% select(element, Num_row, p, perspective), by = c("row" = "Num_row", "perspective")) %>%
   rename(row_element = element,
@@ -122,44 +117,49 @@ attribute_d <- optimum_temp %>%
   rename(col_element = element,
          p_col = p,
          d = value)  %>%
-  separate(perspective, c("졸업년도", "대학"), "_")
+  as_tibble()
 
-
-
-
-heuristic_d <- attribute_d %>%
+diversity_data <- attribute_d %>% 
+  group_by(perspective) %>% 
+  filter(n() < 2 | row > col) %>%  # variety가 1이면 유지. 2이상이면, lower_diagonal만 남김
+  separate(perspective, c("졸업년도", "대학"), "_") %>% 
   group_by(졸업년도, 대학) %>%
-  summarise(variety = n_distinct(p_row),  # scaled variety
-            balance = sum(p_row * p_col),  # balence-weighted variety
+  summarise(variety = max(row),  # scaled variety
+            balance = 2 * sum(p_row * p_col),  # balence-weighted variety
             diversity = sum(d * p_row * p_col))  %>% # balance/disparity-weighted variety
+  mutate(balance = case_when(variety ==1 ~ 0,
+                             TRUE ~ balance)) %>% 
   arrange(-diversity) %>%
   ungroup()
   # mutate(졸업년도 = as.numeric(졸업년도))
 
-
-p <- heuristic_d %>%
+heuristic_data <- diversity_data %>% 
   mutate(졸업년도 = as.factor(졸업년도)) %>%
-  filter(대학 != "법과대학") %>%
-  group_by(대학) %>%
-  mutate(overall_diversity = mean(diversity)) %>%
-  ungroup() %>%
-  mutate(대학 = fct_reorder(대학, overall_diversity)) %>%
-  ggplot(aes(졸업년도, diversity, color = 대학,
-             fill = 대학, group = 대학)) +
-  geom_line() +
-  geom_point(aes(group = seq_along(졸업년도),
-                 size = variety),  # 점들이 순차적으로 등장하게 만들기 위해서 필요
-             shape = 21, color = "white") +
-  scale_fill_manual(name = "대학", values = rev(.colfunc(17, endcolor = "#0078bc"))) +
-  scale_color_manual(name = "대학", values = rev(.colfunc(17, endcolor = "#0078bc"))) +
-  ggdark::dark_theme_minimal() +
-  theme(legend.position = "right",
-        axis.text.x = element_text(angle = 45)) +
-  facet_wrap(~대학)  +
-  guides(alpha = F, size = F) +
-  guides(fill = guide_legend(override.aes = list(size=4, linetype = 0)))
+  # mutate(variety = as.factor(variety)) %>%
+  filter(대학 != "법과대학")
+  
 
-ggsave(p, filename = "heuristic_diversity_by_year.png", dpi = 200, width = 12, height = 10)
+p_balance <- .diversity_plot(data = heuristic_data, group_value = "대학", 
+                             x_value = "졸업년도", x_label = "졸업년도",
+                             y_value = "balance", y_label = "균등성 (balance)",
+                             size_value = "variety", size_label = "다종성 (variety)",
+                             startColor = "#0078bc", endColor = "#ae0e36")
+
+ggsave(p_balance, filename = "p_balance.png", dpi = 200, width = 8, height = 6)
+
+
+p_diversity <- .diversity_plot(data = heuristic_data, group_value = "대학", 
+                             x_value = "졸업년도", x_label = "졸업년도",
+                             y_value = "diversity", y_label = "다양성 (diversity)",
+                             size_value = "variety", size_label = "다종성 (variety)",
+                             startColor = "#0078bc", endColor = "#ae0e36")
+
+ggsave(p_diversity, filename = "p_diversity.png", dpi = 200, width = 12, height = 10)
+
+
+
+
+
 
 
 
@@ -168,7 +168,7 @@ ggsave(p, filename = "heuristic_diversity_by_year.png", dpi = 200, width = 12, h
 library(gganimate)
 
 temp_color = colorRampPalette(brewer.pal(11,"Spectral"))(17)
-
+ 
 p <- heuristic_d %>%
   mutate(졸업년도 = as.numeric(졸업년도)) %>% 
   filter(!대학 %in% c("법과대학", "정보보호학부")) %>%
