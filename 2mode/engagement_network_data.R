@@ -5,9 +5,10 @@ library(readxl)
 library(Matrix)
 library(widyr)
 library(rstudioapi)
-current_path = rstudioapi::getActiveDocumentContext()$path
-setwd(dirname(current_path ))
-getwd()
+# current_path = rstudioapi::getActiveDocumentContext()$path
+# setwd(dirname(current_path ))
+# getwd()
+setwd("C:/Users/Kibum Moon/Dropbox/study/DataHub/19_12_02_KU_Engagement_Network_Model/KU_Engagement_Network_Model/2mode")
 source("../../../R_functions/func.r", encoding = 'utf-8')
 
 
@@ -63,7 +64,8 @@ student_info <- student_info_alumni %>%
   bind_rows(student_info_std) %>% 
   mutate(나이 = (입학년도 - 생년월일) +1 ) %>% 
   mutate(student_code = 1:n()) %>% 
-  as_tibble()
+  as_tibble() %>% 
+  .입학유형정리()
 
 rm(student_info_alumni)
 rm(student_info_std)
@@ -129,46 +131,43 @@ network_ent <- student_info %>%
 
 
 
-
-
-
 ############################################################################
 ######################### 출신학교 네트워크 ################################
 ############################################################################
 
-# 졸업 년도에 따른 가중치 고려?
-
-preschool_alumni <- read.delim("../../../졸업생_학부_출신학교.txt", header=T, 
-                            sep = "|", stringsAsFactor = F) %>% 
-  mutate(출신교졸업년도 = as.numeric(출신교졸업년도))
-
-preschool_std <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
-                            sep = "|", stringsAsFactor = F) %>% 
-  mutate(출신교졸업년도 = as.numeric(출신교졸업년도))
-
-#  자료 join
-preschool_raw <-  bind_rows(preschool_alumni, preschool_std) %>% 
-  as_tibble() %>% 
-  select(-출신교코드)
-
-network_preschool <- preschool_raw %>% 
-  inner_join(student_info, by = "식별자") %>% 
-  filter(출신교명 != "",
-             !is.na(출신교졸업년도)) %>% 
-  mutate(source = student_code,
-         Domain = "출신교",
-         Target = 출신교명,
-         Category = "출신교") %>% 
-  mutate(year_term = paste(입학년도, 입학학기, sep="_")) %>% 
-  left_join(year_term_tl %>% 
-              select(year_term, Num_year_term), by = "year_term") %>% 
-  select(source, Target, Num_year_term, Domain) %>% 
-  mutate(Label = Target) %>% 
-  as_tibble()
-
-rm(preschool_alumni)
-rm(preschool_std)
-rm(preschool_raw)
+# # 졸업 년도에 따른 가중치 고려?
+# 
+# preschool_alumni <- read.delim("../../../졸업생_학부_출신학교.txt", header=T, 
+#                             sep = "|", stringsAsFactor = F) %>% 
+#   mutate(출신교졸업년도 = as.numeric(출신교졸업년도))
+# 
+# preschool_std <- read.delim("../../../재학생_학부_출신학교.txt", header=T, 
+#                             sep = "|", stringsAsFactor = F) %>% 
+#   mutate(출신교졸업년도 = as.numeric(출신교졸업년도))
+# 
+# #  자료 join
+# preschool_raw <-  bind_rows(preschool_alumni, preschool_std) %>% 
+#   as_tibble() %>% 
+#   select(-출신교코드)
+# 
+# network_preschool <- preschool_raw %>% 
+#   inner_join(student_info, by = "식별자") %>% 
+#   filter(출신교명 != "",
+#              !is.na(출신교졸업년도)) %>% 
+#   mutate(source = student_code,
+#          Domain = "출신교",
+#          Target = 출신교명,
+#          Category = "출신교") %>% 
+#   mutate(year_term = paste(입학년도, 입학학기, sep="_")) %>% 
+#   left_join(year_term_tl %>% 
+#               select(year_term, Num_year_term), by = "year_term") %>% 
+#   select(source, Target, Num_year_term, Domain) %>% 
+#   mutate(Label = Target) %>% 
+#   as_tibble()
+# 
+# rm(preschool_alumni)
+# rm(preschool_std)
+# rm(preschool_raw)
 
 ############################################################################
 ######################### 학과 네트워크 ################################
@@ -330,6 +329,7 @@ award_raw <-  bind_rows(award_alumni, award_std) %>%
 
 
 network_award <- award_raw %>% 
+  mutate(상벌유형 = replace(상벌유형, grep("학기우등생|학기최우등생|특대생", 상벌유형), "성적우수표창")) %>% # 성적우수표창 합치기
   inner_join(student_info, by = "식별자") %>% 
   mutate(source = student_code,
          Target = 상벌유형,
@@ -396,8 +396,8 @@ rm(kuscc_raw)
 ############################################################################
 
 # 엣지 합치기
-edges <- network_preschool %>% 
-  bind_rows(network_nationality) %>%
+edges <- network_nationality %>% 
+  # bind_rows(network_preschool) %>%
   bind_rows(network_school_year_age) %>%
   bind_rows(network_scholarship) %>%
   # bind_rows(network_exchange) %>%
@@ -462,13 +462,14 @@ nodes <- edges %>%
 ####### 기본정보 추가   #########
 #####################################
 
-student_info_for_idx <- nodes_std  %>% 
-   # 출신교 join: 해외학교 및 편입 제외
-  left_join(network_preschool %>%
-              select(source, Target) %>%
-              rename(출신교 = Target), by = "source") %>%
-  mutate(출신교 = case_when((국적=="KOR" & !grepl("편입", 입학유형)) ~ 출신교,
-                           TRUE ~ NA_character_))
+student_info_for_idx <- nodes_std 
+# %>% 
+#    # 출신교 join: 해외학교 및 편입 제외
+#   left_join(network_preschool %>%
+#               select(source, Target) %>%
+#               rename(출신교 = Target), by = "source") %>%
+#   mutate(출신교 = case_when((국적=="KOR" & !grepl("편입", 입학유형)) ~ 출신교,
+#                            TRUE ~ NA_character_))
   
 student_info_for_idx %>% 
   distinct(대학) %>% 
@@ -544,7 +545,7 @@ student_info_by_semester <- student_info_for_idx %>%
 
 
 # 분석 활동 설정
-list_attributes <- c("성별", "국적", "출신교",
+list_attributes <- c("성별", "국적",
                      "대학", "학과", "입학유형", 
                      "학년", "나이")
 
@@ -636,6 +637,3 @@ index_list <- index_list_raw %>%
 
 
   
-
-
-
