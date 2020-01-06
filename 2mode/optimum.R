@@ -5,11 +5,16 @@ library(readxl)
 library(Matrix)
 library(widyr)
 library(rstudioapi)
+library(broom)
+
 current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
 source("../../../R_functions/func.r", encoding = 'utf-8')
 source("../../../R_functions/engagement_network_data.r", encoding = 'utf-8')
+current_path = rstudioapi::getActiveDocumentContext()$path
+setwd(dirname(current_path ))
+getwd()
 
 ###############################################
 # 12-22-2019 criteria 및 attribute 결정 필요##
@@ -35,10 +40,20 @@ c(criteria)
 
 # criteria <- c("성적우수표창", "성적경고")
 
-criteria <- c("성적우수표창", "성적경고",
-              "수료","이중전공신청", "이중전공포기",
+# criteria <- c("성적우수표창", "성적경고",
+#               "교환학생_국외", "학점교류_국내",
+#               "이중전공신청", "이중전공포기",
+#               "융합전공신청", "융합전공포기") # 학생성공과 관련있는 지표
+
+
+
+criteria <- c("성적우수표창", 
               "교환학생_국외", "학점교류_국내",
-              "융합전공신청", "융합전공포기") # 학생성공과 관련있는 지표
+              "이중전공신청", "장학금수혜",
+              "융합전공신청") # 학생성공과 관련있는 지표
+
+
+criteria <- c("학점", "자퇴제적") # 학생성공과 관련있는 지표
 
 attributes <- c("성별", "국적")
 
@@ -48,8 +63,8 @@ optimum_raw <- student_info_for_idx %>%
   filter(학적상태 %in% c("졸업", "조기졸업")) %>%
   filter(!grepl("편입", 입학유형)) %>%
   filter(입학년도 >= 2000) %>%
-  filter(졸업년도 >= 2010) %>%
-  mutate(perspective = paste(졸업년도, 대학, sep = "_")) %>%
+  filter(졸업년도 >= 2000) %>%
+  mutate(perspective = paste(입학년도, 대학, sep = "_")) %>%
   mutate(다전공이름 = case_when(다전공종류=="심화전공"~학과,
                                 다전공종류=="이중전공"~이중전공,
                                 다전공종류=="융합전공"~융합전공)) %>%
@@ -101,7 +116,7 @@ optimum_temp <- optimum_raw %>%
 #   filter(term != "(Intercept)")
 
 attribute_d <- optimum_temp %>%
-  mutate_at(vars(contains("mean")), funs(scale)) %>% # 전체 기록 바탕으로 element별 difference 계산
+  mutate_at(vars(contains("mean")), ~scale(.)) %>% # 전체 기록 바탕으로 element별 difference 계산
   group_split(perspective) %>%
   setNames(unique(sort(as.character(optimum_temp$perspective)))) %>%
   map(~ select(.x, -element, -perspective) %>%
@@ -116,14 +131,17 @@ attribute_d <- optimum_temp %>%
   left_join(element_p %>% select(element, Num_row, p, perspective), by = c("col" = "Num_row", "perspective")) %>%
   rename(col_element = element,
          p_col = p,
-         d = value)  %>%
+         d = value)  %>% 
   as_tibble()
 
-diversity_data <- attribute_d %>% 
+diversity_matrix <- attribute_d %>% 
   group_by(perspective) %>% 
   filter(n() < 2 | row > col) %>%  # variety가 1이면 유지. 2이상이면, lower_diagonal만 남김
-  separate(perspective, c("졸업년도", "대학"), "_") %>% 
-  group_by(졸업년도, 대학) %>%
+  separate(perspective, c("입학년도", "대학"), "_") %>%  
+  ungroup()  
+
+diversity_data <-  diversity_matrix %>% 
+  group_by(입학년도, 대학) %>%
   summarise(variety = max(row),  # scaled variety
             balance = 2 * sum(p_row * p_col),  # balence-weighted variety
             diversity = sum(d * p_row * p_col))  %>% # balance/disparity-weighted variety
@@ -131,77 +149,97 @@ diversity_data <- attribute_d %>%
                              TRUE ~ balance)) %>% 
   arrange(-diversity) %>%
   ungroup()
-  # mutate(졸업년도 = as.numeric(졸업년도))
+  # mutate(입학년도 = as.numeric(입학년도))
 
 heuristic_data <- diversity_data %>% 
-  mutate(졸업년도 = as.factor(졸업년도)) %>%
+  filter(입학년도 < 2016) %>% 
+  mutate(입학년도 = as.numeric(입학년도)) %>%
   # mutate(variety = as.factor(variety)) %>%
-  filter(대학 != "법과대학")
-  
+  filter(!대학 %in% c("법과대학", "정보통신대학"))
+
 
 p_balance <- .diversity_plot(data = heuristic_data, group_value = "대학", 
-                             x_value = "졸업년도", x_label = "졸업년도",
+                             x_value = "입학년도", x_label = "입학년도",
                              y_value = "balance", y_label = "균등성 (balance)",
                              size_value = "variety", size_label = "다종성 (variety)",
-                             startColor = "#0078bc", endColor = "#ae0e36")
+                             startColor = "#0078bc", endColor = "#ae0e36",
+                             ncol = 3) 
 
-ggsave(p_balance, filename = "p_balance.png", dpi = 200, width = 8, height = 6)
+ggsave(p_balance, filename = "p_balance.png", dpi = 300, width = 5.5, height = 6)
 
 
 p_diversity <- .diversity_plot(data = heuristic_data, group_value = "대학", 
-                             x_value = "졸업년도", x_label = "졸업년도",
+                             x_value = "입학년도", x_label = "입학년도",
                              y_value = "diversity", y_label = "다양성 (diversity)",
                              size_value = "variety", size_label = "다종성 (variety)",
-                             startColor = "#0078bc", endColor = "#ae0e36")
+                             startColor = "#0078bc", endColor = "#ae0e36",
+                             ncol = 3)
 
-ggsave(p_diversity, filename = "p_diversity.png", dpi = 200, width = 12, height = 10)
+ggsave(p_diversity, filename = "p_diversity.png", dpi = 300, width = 5.5, height = 6)
 
-
-
-
-
-
-
-
-
+############################################################
+################## animation 용 ############################
 
 library(gganimate)
+temp_color = colorRampPalette(brewer.pal(11,"Spectral"))(16)
 
-temp_color = colorRampPalette(brewer.pal(11,"Spectral"))(17)
- 
-p <- heuristic_d %>%
-  mutate(졸업년도 = as.numeric(졸업년도)) %>% 
-  filter(!대학 %in% c("법과대학", "정보보호학부")) %>%
-  mutate(대학 = fct_reorder(대학, -diversity)) %>% 
-  ggplot(aes(balance*2, diversity, color = 대학,
-             fill = 대학, group = 대학,
-             alpha = (졸업년도 - min(졸업년도) / max(졸업년도)))) +
+d_balance_by_diversity <- heuristic_data %>%
+  rename(x = balance,
+         y = diversity,
+         group = 대학) %>%
+  mutate(입학년도 = as.numeric(입학년도)) %>%
+  filter(!group %in% c("법과대학"))
+  
+
+balance_by_diversity_order <- d_balance_by_diversity %>% 
+  group_by(group) %>% 
+  do(tidy(lm(y ~ x, data=.))) %>% 
+  mutate(n_term = n()) %>% 
+  filter(n_term == 1 | term != "(Intercept)") %>% 
+  arrange(-estimate)  %>% 
+  ungroup() %>% 
+  mutate(order = 1:n())
+
+
+p_balance_by_diversity <- d_balance_by_diversity %>% 
+  left_join(balance_by_diversity_order %>% select(group, order), by = "group") %>% 
+  mutate(group = fct_reorder(group, order)) %>%
+  ggplot(aes(x, y, color = group,
+             fill = group, group = group,
+             alpha = 입학년도 - min(입학년도) / max(입학년도))) +
   geom_line() +
-  geom_point(aes(group = seq_along(졸업년도),
+  geom_point(aes(group = seq_along(입학년도),
                  size = variety),  # 점들이 순차적으로 등장하게 만들기 위해서 필요
              shape = 21, color = "white") +
-  scale_fill_manual(name = "대학", values = temp_color) +
-  scale_color_manual(name = "대학", values = temp_color) +
+  scale_fill_manual(name = "College (대학)", values = temp_color) +
+  scale_color_manual(name = "College (대학)", values = temp_color) +
+  scale_size_continuous(range = c(1, 4)) +
+  scale_alpha_continuous(range = c(0.1, 1)) +
+  scale_y_continuous(limits = c(0, NA)) +
   ggdark::dark_theme_minimal() +
-  # theme(legend.position = "top",
-  #       axis.text.x = element_text(angle = 90)) +
-  facet_wrap(~대학)  +
-  guides(alpha = F) +
-  guides(fill = guide_legend(override.aes = list(size=4, linetype = 0))) +
-  # theme(axis.text.x = element_text(angle = 90)) +
-  labs(x = "Balance (균등성, 0=완전불균형, 1=완전균형)", 
+  theme(axis.text.x = element_text(angle = 45)) +
+  facet_wrap(~group, ncol=5)  +
+  guides(alpha = F, fill = F, color = F) +
+  # guides(fill = guide_legend(override.aes = list(size=4, linetype = 0))) +
+  labs(x = "Balance (균등성, 0=완전불균형, 1=완전균형)",
        y = "Diversity (다양성)",
-       size = "Variety (다종성)" )
-p
-ggsave(p, filename = "heuristic_diversity.png", dpi = 300, width = 10, height = 10)
+       size = "Variety (다종성)") +
+  geom_smooth(formula = y ~ x, method = "lm", linetype=3, 
+              size = 0.5, color = "white", se = F, fullrange = T) 
+p_balance_by_diversity
+ggsave(p_balance_by_diversity, filename = "p_balance_by_diversity.png", dpi = 300, width = 6, height = 5)
 
-p_animate <- p +
-  transition_reveal(along = 졸업년도) +
+
+p_animate <- p_balance_by_diversity +
+  transition_reveal(along = x) +
   # view_follow() +
-  labs(title = "기준: {ceiling(frame_along)}년")
+  labs(title = "Year: {ceiling(frame_along)+1999}")
 
 animate(p_animate, width = 1920, height = 1080,
         res = 150, end_pause = 50, nframes = 100,
         renderer = gifski_renderer("test.gif"))
+######################################################################################################
+
+summary(heuristic_data$variety)
 
 
