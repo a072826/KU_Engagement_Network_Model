@@ -31,6 +31,22 @@ getwd()
 # 입학     : 2010년 이후
 #########################################
 
+std_gpa_record_alumni <-  read.delim("../../../졸업생_학부_학점_누계.txt", header = T,
+                                     sep = "|", stringsAsFactors = FALSE) %>% 
+  semi_join(student_info, by = "식별자")
+
+std_gpa_record_std <-  read.delim("../../../재학생_학부_학점_누계.txt", header = T,
+                                  sep = "|", stringsAsFactors = FALSE) %>% 
+  semi_join(student_info, by = "식별자")
+
+std_gpa_record_final <- std_gpa_record_alumni %>% 
+  bind_rows(std_gpa_record_std) %>% 
+  as_tibble()  %>% 
+  filter(년도 == 0, 학기 == "00")
+
+
+
+
 
 # 개방성 측면에서의 다양성
 criteria <- edges %>%
@@ -53,13 +69,15 @@ criteria <- c("성적우수표창",
               "융합전공신청") # 학생성공과 관련있는 지표
 
 
-criteria <- c("학점", "자퇴제적") # 학생성공과 관련있는 지표
+criteria <- c("학점_증명용") # 학생성공과 관련있는 지표
 
-attributes <- c("성별", "국적")
+attributes <- c("성별", "입학유형")
 
 
 
 optimum_raw <- student_info_for_idx %>%
+  select(-학점) %>%  # 네트워크 데이터에서 넘어온 학점 제거
+  
   filter(학적상태 %in% c("졸업", "조기졸업")) %>%
   filter(!grepl("편입", 입학유형)) %>%
   filter(입학년도 >= 2000) %>%
@@ -70,7 +88,9 @@ optimum_raw <- student_info_for_idx %>%
                                 다전공종류=="융합전공"~융합전공)) %>%
   # mutate(국적 = fct_lump(국적, n = 20))  %>%
   # unite_("element", c(attributes[1], attributes[2]), sep = "|")
-  mutate_(element = attributes[2])
+  mutate_(element = attributes[2]) %>% 
+  left_join(std_gpa_record_final %>% 
+              select(식별자, 학점_증명용, 학점, 신청학점, 이수학점), by = "식별자")
 
 
 element_p <- optimum_raw %>%
@@ -140,6 +160,13 @@ diversity_matrix <- attribute_d %>%
   separate(perspective, c("입학년도", "대학"), "_") %>%  
   ungroup()  
 
+
+# diversity_matrix %>% 
+#   distinct(입학년도, 대학, col, p_col) %>% 
+#   mutate(entropy = p_col * log(p_col))  %>% 
+#   group_by(입학년도, 대학) %>% 
+#   summarise(shannon_entropy = -sum(entropy)) %>% View()
+
 diversity_data <-  diversity_matrix %>% 
   group_by(입학년도, 대학) %>%
   summarise(variety = max(row),  # scaled variety
@@ -158,24 +185,24 @@ heuristic_data <- diversity_data %>%
   filter(!대학 %in% c("법과대학", "정보통신대학"))
 
 
-p_balance <- .diversity_plot(data = heuristic_data, group_value = "대학", 
-                             x_value = "입학년도", x_label = "입학년도",
-                             y_value = "balance", y_label = "균등성 (balance)",
-                             size_value = "variety", size_label = "다종성 (variety)",
-                             startColor = "#0078bc", endColor = "#ae0e36",
-                             ncol = 3) 
-
-ggsave(p_balance, filename = "p_balance.png", dpi = 300, width = 5.5, height = 6)
-
-
-p_diversity <- .diversity_plot(data = heuristic_data, group_value = "대학", 
-                             x_value = "입학년도", x_label = "입학년도",
-                             y_value = "diversity", y_label = "다양성 (diversity)",
-                             size_value = "variety", size_label = "다종성 (variety)",
-                             startColor = "#0078bc", endColor = "#ae0e36",
-                             ncol = 3)
-
-ggsave(p_diversity, filename = "p_diversity.png", dpi = 300, width = 5.5, height = 6)
+# p_balance <- .diversity_plot(data = heuristic_data, group_value = "대학", 
+#                              x_value = "입학년도", x_label = "입학년도",
+#                              y_value = "balance", y_label = "균등성 (balance)",
+#                              size_value = "variety", size_label = "다종성 (variety)",
+#                              startColor = "#0078bc", endColor = "#ae0e36",
+#                              ncol = 3) 
+# 
+# ggsave(p_balance, filename = "p_balance.png", dpi = 300, width = 5.5, height = 6)
+# 
+# 
+# p_diversity <- .diversity_plot(data = heuristic_data, group_value = "대학", 
+#                              x_value = "입학년도", x_label = "입학년도",
+#                              y_value = "diversity", y_label = "다양성 (diversity)",
+#                              size_value = "variety", size_label = "다종성 (variety)",
+#                              startColor = "#0078bc", endColor = "#ae0e36",
+#                              ncol = 3)
+# 
+# ggsave(p_diversity, filename = "p_diversity.png", dpi = 300, width = 5.5, height = 6)
 
 ############################################################
 ################## animation 용 ############################
@@ -243,3 +270,21 @@ animate(p_animate, width = 1920, height = 1080,
 summary(heuristic_data$variety)
 
 
+
+
+p <- optimum_raw %>% 
+  filter(대학 %in% c("미디어학부", "국제학부")) %>% 
+  group_by(대학) %>% 
+  mutate(입학유형 = fct_lump(입학유형, n = 4, other_level = "기타")) %>% 
+  group_by(입학유형) %>% 
+  mutate(n = n(),
+         mean = mean(학점_증명용, na.rm=T)) %>% 
+  ungroup() %>% 
+  mutate(입학유형 = fct_reorder(입학유형, -n)) %>% 
+  ggplot(aes(학점_증명용, fill = 입학유형)) +
+  geom_density(alpha = 0.3) + 
+  facet_wrap(~대학, scale="free_y", ncol = 5) 
+  geom_vline(aes(xintercept = mean, color = 입학유형), size = 2)
+
+  .myggplotly(p)
+  

@@ -9,7 +9,7 @@ current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
 
-source("engagement_network_data.r", encoding = 'utf-8')
+source("../../../R_functions/engagement_network_data.R", encoding = 'utf-8')
 
 ############################################################################
 ######################### 다양성 분석  ################################
@@ -102,7 +102,7 @@ student_info_by_semester <- student_info_for_idx %>%
 
 
 # 분석 활동 설정
-list_attributes <- c("성별", "국적", "출신교",
+list_attributes <- c("성별", "국적", 
                      "대학", "학과", "입학유형", 
                      "학년", "나이")
 
@@ -130,7 +130,7 @@ for(i in list_attributes) {
   expected_prob <-
     student_info_by_semester %>%
     group_by(Num_year_term) %>%
-    count(i) %>% 
+    count_(i) %>% 
     rename(cate = i, n_expected = n) %>% 
     filter(!is.na(cate)) %>% 
     mutate(N_total_expected = sum(n_expected),
