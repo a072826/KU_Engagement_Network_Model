@@ -1,0 +1,224 @@
+---
+title: "학생 성공 관련 지표"
+author: "Kibum Moon"
+date: 'Nov.26.2019'
+output: 
+  rmdformats::html_clean
+    # css: css.css
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = F,
+	message = F,
+	warning = FALSE,
+	cache = F)
+
+```
+
+```{r}
+source("../../R_functions/func.r", encoding = 'utf-8')
+
+library(tidyverse)
+library(janitor)
+library(widyr)
+library(readxl)
+library(Matrix)
+library(widyr)
+library(rstudioapi)
+
+source("../../R_functions/engagement_network_data.R", encoding = 'utf-8')
+
+# student_info <- student_info %>% 
+#   filter(grepl("졸업", 학적상태))
+# 
+# student_info <- student_info %>% 
+#   filter(!grepl("편입", 입학유형)) 
+# 
+# 
+# edges_joined <- edges %>% 
+#   semi_join(student_info %>% select(source), by = "source")
+
+student_info <- student_info_for_idx %>%
+  filter(국적 != "KOR")
+
+
+```
+
+
+# 분석 대상
+
+```{r}
+
+min_ent_year <- min(student_info$입학년도, na.rm=T) %>% 
+  as_tibble()
+
+max_ent_year <- as.character(max(student_info$입학년도, na.rm=T)) %>% 
+  as_tibble()
+
+n_std <- nrow(student_info) %>% 
+  as_tibble()
+```
+
+
+본 분석을 위해 `r min_ent_year$value`학번부터  `r max_ent_year$value`학번까지의 졸업생 `r n_std$value`명*의 자료를 사용하였다. 
+
+* 편입생 1,010명은 분석에서 제외
+
+# Engagement Table
+
+```{r}
+
+list_attributes <- c("성별", "국적", 
+                     "대학", "학과", "입학유형", 
+                     "학년", "나이", "일반재입학")
+
+list_attributes_nonused <- c("군복무휴학","성적경고해제", "학생상담센터"
+                             ,"유급(휴학)", "유급(과락)", "유급(평락)",
+                             "장학금수혜", "이중전공포기", "융합전공포기", "의예과수료",
+                             "군학점인정신청", "복수전공 진입", "불응시자(인정)",
+                             "세부전공변경(보건과학대)", "복수전공 신청포기",
+                             "복수전공 중도포기", "체육특기자 복귀", "조기이수", "불응시자(불인정)",
+                             "등교정지해제", "학군단진입", 
+                             "학석사연계 포기", "학·석사 연계과정 조기졸업",
+                             "학생설계전공포기")
+
+
+edges_casted <- edges_joined %>% 
+  filter(!Domain %in% list_attributes) %>% 
+  filter(!Domain %in% list_attributes_nonused) %>%
+  filter(!Domain %in% c("학점")) %>% 
+  # filter(!Domain %in% c("성적경고", "성적불량제적", "성적우수표창")) %>%
+  reshape2::dcast(source ~ Domain, value.var = "참여여부") %>% 
+  # mutate_all(.funs = clusterSim::data.Normalization, type = "n5")
+  select(-source)
+
+
+pca <- psych::pca(edges_casted, rotate = "cluster", nafactors = 5, niter = 100)
+
+pca[4]$communality %>% 
+  data.frame() %>%
+  tibble::rownames_to_column("engagement") %>% 
+  rename(communality = ".") %>% 
+  mutate(engagement = fct_reorder(engagement, communality)) %>% 
+  ggplot(aes(engagement, communality, fill = communality)) +
+  geom_col() +
+  coord_flip()
+
+
+pca[5]$loadings[,] %>% 
+  data.frame() %>%
+  tibble::rownames_to_column("engagement") %>% 
+  rename(loadings = ".") %>% 
+  mutate(engagement = fct_reorder(engagement, loadings)) %>% 
+  ggplot(aes(engagement, loadings, fill = loadings > 0)) +
+  geom_col() +
+  coord_flip() +
+  guides(fill =F)
+
+
+# edges_sample <- edges_casted %>% 
+#   sample_n(size = 100)
+# 
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 성적
+
+성적은 한 학생의 학업적 성취도와 관련된 기본적인 지표이다. 성적과 관련해 구체적으로 살펴볼 수 있는 지표는 총평점(GPA)과 성적 변화도, 성적우수 표창, 성적경고 등이 있다. 총평점과 성적 변화도는 한 학생의 전반적인 학업적 성취도를 보여준다. 성적우수 표창 및 성적경고는 각각 뛰어난 학업적 역량과 취약성을 보여준다. 
+
+## 총평점
+
+### 총평점 분포
+
+```{r}
+p_gpa_total <- gpa_total %>% 
+  ggplot(aes(학점)) +
+  geom_density(fill = "#ae0e36", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean(학점))) +
+  geom_text(aes(label = paste0("평균 GPA: ", round(mean(학점),2)), x = mean(학점)), y=0.2, hjust=-1)
+
+.myggplotly(p_gpa_total)
+
+```
+
+
+## 성적 변화도
+
+성적 변화도는 입학 후 졸업까지의 학업적 성취의 발전 방향을 보여줄 수 있다. 
+[논의 사항 참조]
+
+```{r}
+###############################
+# 졸업생 학생 성장 지표 ######
+###############################
+
+
+# 성적 향상률
+# gpa_record_alumni <-  read.delim("../../졸업생_학부_학점_누계.txt", header = T,
+#                                      sep = "|", stringsAsFactors = FALSE) %>%
+#   semi_join(student_info_for_idx, by = "식별자") %>% 
+#   as_tibble() 
+# 
+# 
+# gpa_total <- gpa_record_alumni %>%
+#   filter(년도 == 0, 학기 == "00")
+
+```
+
+
+
+## 국제 교류 
+
+
+
+# 비교과 활동
+
+
+
+## 국내대학 학점 교류
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 논의 사항 (가장 적합한)
+
+## 성적 변화도 
+
+- 기울기
+
+- 누적 평균성적 변화
+
+- 최종학점 - 첫학기 학점

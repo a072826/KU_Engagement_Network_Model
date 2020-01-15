@@ -138,6 +138,7 @@ for(i in list_attributes) {
   
   domain_joined <-
     activities_interested %>%  
+    
     left_join(student_info_by_semester_domain_joined %>% 
                 select_if(names(.) %in% c(list_attributes, "source", "Num_year_term")), 
               by = c("source", "Num_year_term")) %>% 
