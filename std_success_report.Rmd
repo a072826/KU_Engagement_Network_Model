@@ -27,8 +27,62 @@ library(readxl)
 library(Matrix)
 library(widyr)
 library(rstudioapi)
+library(kableExtra)
+library(broom)
+library(countrycode)
+library(scales)
+library(Scale)
+library(weights)
 
-source("../../R_functions/engagement_network_data.R", encoding = 'utf-8')
+setwd("C:/Users/Kibum Moon/Dropbox/study/DataHub/19_12_02_KU_Engagement_Network_Model/KU_Engagement_Network_Model")
+
+
+# std_gpa_record_alumni <-  read.delim("../../졸업생_학부_학점_누계.txt", header = T,
+#                                      sep = "|", stringsAsFactors = FALSE) 
+# 
+# std_gpa_record_std <-  read.delim("../../재학생_학부_학점_누계.txt", header = T,
+#                                   sep = "|", stringsAsFactors = FALSE) 
+# 
+# std_gpa_record_final <- std_gpa_record_alumni %>%
+#   bind_rows(std_gpa_record_std) %>%
+#   as_tibble()  
+#   # filter(년도 == 0, 학기 == "00")
+# 
+# rm(std_gpa_record_alumni)
+# rm(std_gpa_record_std)
+# 
+# 
+
+# # # # # # # # # # # # # # #
+# 외국인 학생의 성적 증가율 #
+# # # # # # # # # # # # # # #
+
+
+# std_gpa <- std_gpa_record_final %>% 
+#   semi_join(student_info, by = "식별자")
+# 
+# 
+# std_gpa_processed <- std_gpa %>% 
+#   filter(nchar(년도)>=4) %>%
+#   filter(!is.na(학점), 학점!=0, 이수학점 >= 12) %>%  # 12학점 이상 수강 학기만 인정
+#   filter(!학기 %in% c("1S", "2W")) %>%
+# 
+#   mutate(year_term = paste(년도, 학기, sep="_")) %>%
+#   left_join(year_term_tl %>%
+#               select(year_term, Num_year_term), by = "year_term") %>%
+# 
+#   arrange(Num_year_term) %>%
+#   group_by(식별자) %>%
+#   mutate(누적학기 = 1:n()) %>%
+#   ungroup() %>%
+#   arrange(식별자, 누적학기)
+# 
+# std_gpa_slope <- std_gpa_processed %>%
+#   filter(누적학기 >= 3) %>%  # 3학기 이상 등록
+#   group_by(식별자) %>%
+#   do(tidy(lm(학점 ~ 누적학기, data=.))) %>%
+#   filter(term != "(Intercept)") %>% 
+#   writexl::write_xlsx("전체_학부_외국인_성적slope.xlsx")
 
 # student_info <- student_info %>% 
 #   filter(grepl("졸업", 학적상태))
@@ -40,14 +94,186 @@ source("../../R_functions/engagement_network_data.R", encoding = 'utf-8')
 # edges_joined <- edges %>% 
 #   semi_join(student_info %>% select(source), by = "source")
 
-student_info <- student_info_for_idx %>%
-  filter(국적 != "KOR")
+# student_info <- student_info %>% 
+#   left_join(std_gpa_record_final %>% 
+#               select(식별자, 학점_증명용, 이수학점), by = "식별자")
+
+# student_info <- student_info_for_idx %>%
+#   filter(국적 != "KOR") %>%
+  # left_join(std_gpa_slope %>%
+  #             select(식별자, estimate) %>%
+  #             rename(성적향상 = estimate), by = "식별자")
+
+
+# writexl::write_xlsx(student_info,"student_info_foregin.xlsx")
+student_info <- readxl::read_xlsx("student_info_foregin.xlsx")
+
+  
+
+편입외국인 <- student_info %>% 
+  filter(grepl("편입", 입학유형))
+
+student_info <- student_info %>%
+  filter(!grepl("편입",  입학유형)) %>%
+  mutate(label = countrycode(국적, "iso3c", "country.name")) %>%
+  mutate(label = replace(국적, grepl("Hong Kong", label), "Hong Kong")) %>%
+  mutate(지역  = countrycode(국적, "iso3c", "region"))
+  
+
+
+distance <- readstata13::read.dta13("dist_cepii.dta") %>% 
+  mutate(distw = log(distw + 1))
+
+
 
 
 ```
 
 
-# 분석 대상
+<!-- Stiring Heuristic -->
+
+```{r}
+
+
+criteria <- c("성적우수표창", 
+              "교환학생_국외", "학점교류_국내",
+              "이중전공신청",  "학점_증명용",
+              "융합전공신청") # 학생성공과 관련있는 지표
+
+attributes <- c("국적")
+
+optimum_raw <-  student_info %>%
+  select(-학점) %>%  # 네트워크 데이터에서 넘어온 학점 제거
+  mutate(perspective = paste(입학년도, sep = "_")) %>%
+  mutate(다전공이름 = case_when(다전공종류=="심화전공"~학과,
+                                다전공종류=="이중전공"~이중전공,
+                                다전공종류=="융합전공"~융합전공)) %>%
+  # mutate(국적 = fct_lump(국적, n = 20))  %>%
+  # unite_("element", c(attributes[1], attributes[2]), sep = "|")
+  mutate_(element = attributes[1])
+
+
+element_p <- optimum_raw %>%
+  select_if(names(.) %in% c("element", criteria, "perspective")) %>%
+  group_by(perspective) %>%
+  mutate(N_year = sum(n())) %>%
+  group_by(perspective, N_year) %>%
+  count(element) %>%
+  mutate(p = n / N_year)  %>%
+  group_by(perspective) %>%
+  mutate(Num_row = 1:n(),
+         Num_element = n()) %>%
+  ungroup() 
+
+shannon_entropy  <- element_p %>% 
+  rename(입학년도 = perspective) %>% 
+  group_by(입학년도) %>% 
+  summarise(shannon_entropy = -sum(p*log2(p)))
+
+optimum_temp <- optimum_raw %>%
+  group_by(perspective) %>%
+  select_if(names(.) %in% c("element", criteria)) %>%
+  replace(is.na(.), 0) %>%
+  group_by(perspective, element) %>%
+  summarise_at(.vars = criteria, .funs = c(mean = "mean"), na.rm=T) %>%
+  group_by(perspective) %>%
+  mutate(Num_row = 1:n()) %>%
+  ungroup()
+
+
+
+# w_c <- data.frame(criteria = criteria, importance = c(1, -1))
+# 
+# optimum_raw %>%
+#   replace(is.na(.), 0) %>%
+#   group_by(element) %>%
+#   # mutate(n_within_element = n()) %>%
+#   # filter(n_within_element > 1) %>%
+#   # group_by(perspective) %>%
+#   # mutate(n_within_perspective = n()) %>%
+#   # filter(n_within_perspective > n_within_element*2) %>%
+#   group_by(대학) %>%
+#   nest() %>%
+#   mutate(fit = map(data, ~ lm(성적우수표창 ~ element, data = .x)),
+#          tidied = map(fit, tidy)) %>%
+#   unnest(tidied) %>%
+#   filter(term != "(Intercept)")
+
+attribute_d <- optimum_temp %>%
+  mutate_at(vars(contains("mean")), ~scale(.)) %>% # 전체 기록 바탕으로 element별 difference 계산
+  group_split(perspective) %>%
+  setNames(unique(sort(as.character(optimum_temp$perspective)))) %>%
+  map(~ select(.x, -element, -perspective) %>%
+        column_to_rownames(var = "Num_row") %>%
+        proxy::dist(method = "Euclidean") %>%
+        as.matrix() %>%
+        reshape2::melt(varnames = c("row", "col"))) %>%
+  map_df(~as.data.frame(.x), .id = "perspective") %>%
+  left_join(element_p %>% select(element, Num_row, p, perspective), by = c("row" = "Num_row", "perspective")) %>%
+  rename(row_element = element,
+         p_row = p) %>%
+  left_join(element_p %>% select(element, Num_row, p, perspective), by = c("col" = "Num_row", "perspective")) %>%
+  rename(col_element = element,
+         p_col = p,
+         d = value)  %>% 
+  as_tibble() %>% 
+  
+  ##### 국가별 거리로 거리(d) 대체
+  
+  left_join(distance %>% 
+              select(iso_o, iso_d, distw), by = c("row_element" = "iso_o",
+                                                  "col_element" = "iso_d"))  %>% 
+
+  ##### 국가별 거리 결측치는 평균으로 대체
+
+  mutate(distw = replace_na(distw, mean(distw, na.rm=T)))
+
+diversity_matrix <- attribute_d %>% 
+  group_by(perspective) %>% 
+  filter(n() < 2 | row > col) %>%  # variety가 1이면 유지. 2이상이면, lower_diagonal만 남김
+  rename(입학년도 = perspective) %>% 
+  ungroup()  
+
+
+# diversity_matrix %>% 
+#   distinct(입학년도, 대학, col, p_col) %>% 
+#   mutate(entropy = p_col * log(p_col))  %>% 
+#   group_by(입학년도, 대학) %>% 
+#   summarise(shannon_entropy = -sum(entropy)) %>% View()
+
+diversity_data <-  diversity_matrix %>% 
+  group_by(입학년도) %>%
+  summarise(variety = max(row),  # scaled variety
+            balance = 2 * sum(p_row * p_col, na.rm = T),  # balence-weighted  variety
+            disparity = sum(distw),
+            diversity = sum(distw * p_row * p_col, na.rm = T))  %>% # balance/disparity-weighted variety
+  mutate(balance = case_when(variety ==1 ~ 0,
+                             TRUE ~ balance)) %>% 
+  arrange(-diversity) %>%
+  ungroup() %>% 
+  mutate(입학년도 = as.numeric(입학년도)) %>% 
+  arrange(입학년도)
+
+
+중국학생비율 <- student_info %>%
+  group_by(입학년도) %>% 
+  mutate(N = n()) %>% 
+  group_by(입학년도, N) %>% 
+  summarise(중국여부 = sum(국적 == "CHN")) %>% 
+  mutate(중국학생비율 = 중국여부/N)
+
+heuristic_data <- diversity_data %>% 
+  left_join(중국학생비율 %>% select(-N), by = "입학년도") %>% 
+  left_join(student_info %>% 
+              count(입학년도) %>% 
+              rename(N = n), by = "입학년도")
+
+```
+
+
+# 연구 방법
+
+## 분석 대상
 
 ```{r}
 
@@ -59,166 +285,657 @@ max_ent_year <- as.character(max(student_info$입학년도, na.rm=T)) %>%
 
 n_std <- nrow(student_info) %>% 
   as_tibble()
+
+n_foreign_std <- student_info %>% 
+  mutate(국적 = fct_lump(국적, n = 7, other_level = "기타")) %>% 
+  count(입학년도, 국적) %>% 
+  mutate(국적 = fct_reorder(국적, n))
+
+n_foregin_std_max <- max(student_info %>% count(입학년도) %>% select(n))
+
+
 ```
 
 
-본 분석을 위해 `r min_ent_year$value`학번부터  `r max_ent_year$value`학번까지의 졸업생 `r n_std$value`명*의 자료를 사용하였다. 
+  다양성 분석은 분석의 목적과 범위에 따라 다양한 요소를 고려해 진행된다. 대학의 다양성 분석을 수행하기 위해 교내 구성원과 각각의 구성원을 구분하는 속성(요소)을 고려할 수 있다. 이때 교내 구성원은 학생, 교원, 직원 등 대학 공동체를 구성하는 모든 사람들이 대상이 될 수 있다. 성별, 국적, 나이, 전공 등은 각 구성원을 구분하는 요소가 된다. 본 연구에서는 다양성 분석이 적용될 수 있는 대표적인 사례로 학생의 국적을 고려한 다양성 분석을 실시했다. `r min_ent_year$value`년부터  `r max_ent_year$value`년까지 입학한 서울 캠퍼스 외국인 학생 `r n_std$value`명의 자료를 분석에 사용했다. 해석적 의미를 분명히 하기 위해 편입을 통해 입학한 `r nrow(편입외국인)`명의 자료는 분석에서 제외했다. 
 
-* 편입생 1,010명은 분석에서 제외
 
-# Engagement Table
+# 연구 결과
+
+## 외국인 학생 현황
+
+외국인 입학생 수는 2016년 `r n_foregin_std_max`명으로 정점을 찍은 후 감소하는 추세이다 (그림 x). 외국인 학생의 국적별 비중은 중국이 가장 높고 기타, 말레이시아, 미국 등이 그 뒤를 따른다. 전체 외국인 학생의 98.61%가 외국인 전형(정원외)을 통해 고려대학교에 입학한다(표 X). 문과대학과 경영대학에 가장 많은 외국인 학생이 입학하였으며, 정보보호학부는 외국인 학생이 존재하지 않았다(그림 X). 입학년도가 최근에 가까울수록 외국인 학생의 중도탈락율은 낮았다(그림 X). 
 
 ```{r}
 
-list_attributes <- c("성별", "국적", 
-                     "대학", "학과", "입학유형", 
-                     "학년", "나이", "일반재입학")
+# 년도별 외국인 학생
+n_foreign_std %>% 
+  mutate(입학년도 = as.factor(입학년도)) %>% 
+  ggplot(aes(입학년도, n, fill = 국적)) +
+  geom_col(color = "black") +
+  scale_fill_brewer(palette = "Spectral")+
+  labs(y = "학생수") +
+  theme_minimal() +
+  ggsave("01_년도별입학생.png", height = 4, width = 6)
 
-list_attributes_nonused <- c("군복무휴학","성적경고해제", "학생상담센터"
-                             ,"유급(휴학)", "유급(과락)", "유급(평락)",
-                             "장학금수혜", "이중전공포기", "융합전공포기", "의예과수료",
-                             "군학점인정신청", "복수전공 진입", "불응시자(인정)",
-                             "세부전공변경(보건과학대)", "복수전공 신청포기",
-                             "복수전공 중도포기", "체육특기자 복귀", "조기이수", "불응시자(불인정)",
-                             "등교정지해제", "학군단진입", 
-                             "학석사연계 포기", "학·석사 연계과정 조기졸업",
-                             "학생설계전공포기")
+# 대학별 외국인 학생
+.frq_plot(student_info , colName = "대학", ggplotly=F)+
+    ggsave("02_단과대별외국인.png", height = 4, width = 6)
+
+# 외국인 학생 중도 탈락률
+student_info %>% 
+  group_by(입학년도) %>% 
+  summarise(N = n(),
+         제적 = sum(학적상태 == "제적")) %>% 
+  mutate(r = 제적 / N) %>% 
+  ggplot(aes(입학년도, r, color = r)) +
+  geom_line() +
+  geom_point(aes(size = N))+
+  geom_text(aes(label = percent(r)), hjust = 0.5, vjust = -2,
+            check_overlap = T, size = 2) +
+  scale_y_continuous(limits = c(0, 0.3), labels = percent_format()) +
+  scale_x_continuous(breaks = seq(2006, 2019, 1))+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(y = "중도탈락율") +
+  ggsave("03_중도탈락율.png", height = 4, width = 6) 
+
+# 전형별 외국인 학생
+student_info %>%
+  rename(입학전형 = 입학유형) %>% 
+  count(입학전형,sort=T) %>%
+  mutate(N = sum(n)) %>% 
+  mutate(`비율(%)` = round((n/N)*100, 2)) %>% 
+  select(-N) %>% 
+  kable() %>%
+  kable_styling()
+```
 
 
-edges_casted <- edges_joined %>% 
-  filter(!Domain %in% list_attributes) %>% 
-  filter(!Domain %in% list_attributes_nonused) %>%
-  filter(!Domain %in% c("학점")) %>% 
-  # filter(!Domain %in% c("성적경고", "성적불량제적", "성적우수표창")) %>%
-  reshape2::dcast(source ~ Domain, value.var = "참여여부") %>% 
-  # mutate_all(.funs = clusterSim::data.Normalization, type = "n5")
-  select(-source)
+```{r}
+n_foreign_std_2019 <- n_foreign_std %>% filter(입학년도 == 2019) %>% summarise(n = sum(n))
+
+외국인학생수감소율 <- .percent_rounder((n_foreign_std_2019/n_foregin_std_max))
 
 
-pca <- psych::pca(edges_casted, rotate = "cluster", nafactors = 5, niter = 100)
+foregin_variety <- student_info %>% 
+  group_by(입학년도) %>% 
+  summarise(N = n(),
+            n = n_distinct(국적)) %>%
+  mutate(입학년도 = as.factor(입학년도))
 
-pca[4]$communality %>% 
-  data.frame() %>%
-  tibble::rownames_to_column("engagement") %>% 
-  rename(communality = ".") %>% 
-  mutate(engagement = fct_reorder(engagement, communality)) %>% 
-  ggplot(aes(engagement, communality, fill = communality)) +
-  geom_col() +
-  coord_flip()
+foregin_variety_max <- max(foregin_variety$n)
+foregin_variety_2019 <- foregin_variety$n[foregin_variety$입학년도==2019]
+
+외국인다종성감소율 <- .percent_rounder(foregin_variety_2019/foregin_variety_max)
 
 
-pca[5]$loadings[,] %>% 
-  data.frame() %>%
-  tibble::rownames_to_column("engagement") %>% 
-  rename(loadings = ".") %>% 
-  mutate(engagement = fct_reorder(engagement, loadings)) %>% 
-  ggplot(aes(engagement, loadings, fill = loadings > 0)) +
-  geom_col() +
+```
+
+
+
+## 다종성(variety) 분석
+
+  다종성은 한 생태계를 구성하는 종이 얼마나 다양한지 의미하는 개념이다. 다종성 분석은 해당 년도에 입학한 외국인 유학생의 국적이 얼마나 다양한가 보여준다. 외국인 유학생의 국적 다종성은 2016년 56개국으로 정점을 찍은 후 감소하는 추세이다. 하지만 2019년 외국인 유학생의 수가 정점 대비 `r 외국인학생수감소율`%에 불과한 반면 다종성은 정점 대비 `r 외국인다종성감소율`%으로 다종성의 감소폭이 학생수의 감소폭에 비해 상대적으로 작았다는 것을 보여준다. 
+  
+  
+```{r}
+# 다종성
+heuristic_data %>% 
+  ggplot(aes(입학년도, variety, group = 1, color = variety)) +
+  geom_line() +
+  geom_point(aes(size = N))+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  scale_x_continuous(breaks = seq(2006, 2019, 1))+
+  scale_y_continuous(limits = c(0, 65)) +
+  geom_text(aes(label = variety), hjust = 0.5, vjust = -2,
+            check_overlap = T, size = 2) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(y = "다종성(variety)") +
+  ggsave("04_국적_다종성.png", height = 4, width = 6)
+
+
+
+
+```
+  
+  
+## 균등성(balance) 분석
+
+  균등성은 한 생태계를 구성하는 종의 분포가 얼마나 균일한지를 의미한다. 균등성 분석은 고려대학교에 입학한 외국인 학생의 국적이 얼마나 고르게 분포되어 있는지 보여준다. 원래 Stiring의 general diversity heuristic(*Δ*) 체계에서 균등성은 지니-심슨 지수(Gini-Simpson Index)의 절반이다. 본 연구에서는  *Δ* 균등성에 2를 곱해 더 자주 사용되는 지니-심슨 지수를 산출했다. 지니-심슨 지수는 외국인 학생의 국적 분포가 완전히 균일할 때 1, 완전히 불균일할 때 0이 된다. 2006년부터 2019년까지의 평균 지니-심슨 지수는 0.68이다(그림 x). 2016년부터 2018년에는 지니-심슨 지수가 다른 해에 비해 크게 낮았다. 이는 중국 출신 학생의 증가와 관련성이 높다. 상관분석 결과 외국인 학생의 균등성과 중국 국적 학생 비율 사이에는 매우 강한 부적 상관이 존재했다(*r* = `r rd(cor.test(heuristic_data$balance, heuristic_data$중국학생비율)[[4]],2)`, *p* < .001). 2016년부터 2018년은 중국 출신 학생의 비율 가장 높았던 해이다. 외국인 유학생의 출신 국가에서 중국이 차지하는 비율이 70% 내외로 높아짐에 따라 지니-심슨 지수가 0.7 수준에서 0.5 수준으로 급격하게 낮아졌다. 2019년에 중국 출신 수학생의 비율이 `r .percent_rounder(heuristic_data$중국학생비율[heuristic_data$입학년도==2019])`%으로 감소하면서 지니-심슨 지수는 다시 평균 수준에 가까워졌다. *Δ* 균등성과 또 다른 균등성 지수인 Shannon entropy 사이에는 정적 상관이 존재했다, *r* =   `r rd(cor.test(shannon_entropy$shannon_entropy, heuristic_data$balance)[[4]], 2)`, *p* = `r rd(cor.test(shannon_entropy$shannon_entropy, heuristic_data$balance)[[3]], 3)`.
+  
+  
+
+  
+  
+
+```{r}
+# 균등성
+heuristic_data %>% 
+  ggplot(aes(입학년도, balance, group = 1, color = balance)) +
+  geom_line() +
+  geom_point(aes(size = N))+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  scale_x_continuous(breaks = seq(2006, 2019, 1))+
+  scale_y_continuous(limits = c(0, 1)) +
+  geom_text(aes(label = round(balance, 2)), hjust = 0.5, vjust = -2,
+            check_overlap = T, size = 2) +
+  geom_hline(aes(yintercept = mean(balance))) +
+  # annotate(geom = "text", x = 2007, y=0.6, 
+  #          label = paste0("평균: ", "0.68"))+
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(y = "균등성(balance)") +
+  ggsave("05_연도별_균등성.png", height = 4, width = 6)
+
+# 중국학생비율X균등성
+heuristic_data %>% 
+  mutate(입학년도 = as.numeric(입학년도)) %>% 
+  ggplot(aes(중국학생비율, balance, color = balance)) +
+  geom_smooth(aes(col = ..y..), method = "lm", se = F, alpha = .5) +
+  geom_point(aes(size = N), alpha = 0.7)+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  scale_y_continuous(limits = c(0.3, 1))+
+  ggrepel::geom_text_repel(aes(label = 입학년도), hjust = 0.5, vjust = -1.5,
+            check_overlap = F, size = 2) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(y = "균등성(balance)") +
+  ggsave("06_중국학생비율_by_균등성.png", height = 4, width = 4)
+
+```
+
+
+```{r}
+# 지역별 외국인 학생증가 회귀 분석 
+
+학생증가_lm <- student_info %>% 
+  count(입학년도, 지역) %>% 
+  nest(-지역) %>% 
+  mutate(fit = map(data, ~ lm(n ~ 입학년도, data=.x)),
+         tidied = map(fit, tidy, conf.int=T)) %>% 
+  unnest(tidied) %>% 
+  filter(term != "(Intercept)") %>% 
+  filter(!is.na(지역))
+
+```
+
+  이러한 결과는 외국인 유학생의 절대적인 수가 늘어도 다양성이 늘지 않을 수 있다는 것을 보여준다. 특히 2016년부터 2018년 사이에는 외국인 학생의 수가 가장 많았음에도 불구하고 균등성 지수는 가장 낮았다. 따라서 외국인 학생의 질적 다양성을 높이기 위해서는 현재 중국에 편중된 외국인 학생의 출신국을 다변화 할 필요가 있어 보인다. 이를 위해 지역별 학생수 변화에 대한 분석을 진행했다. 중국과 일본을 포함한 동아시아 지역 출신의 학생수가 가장 빠르게 늘고 있다, B = `r sprintf('%.2f', 학생증가_lm$estimate[학생증가_lm$지역 == "Eastern Asia"])`, *p* < .001. 그림 6은 동아시아 지역 이외에 학생수가 늘고 있는 지역을 보여준다. 중앙 아시아 지역이 조사 기간 내 학생수 증가폭이 가장 컸다, B = `r sprintf('%.2f', 학생증가_lm$estimate[학생증가_lm$지역 == "Central Asia"])`, *p* = .001. 동남 아시아 지역은 동아시아를 제외하고 가장 많은 학생이 유입되었을 뿐만 아니라 그 증가폭 또한 컸다, B = `r sprintf('%.2f', 학생증가_lm$estimate[학생증가_lm$지역 == "South-Eastern Asia"])`, *p* = .002. 이런 점에서 중앙 아시아와 동남 아시아 출신 학생들의 유입이 증가하는 원인을 파악하는 것이 출신 지역 다변화에 도움이 될 수 있을 것으로 보인다. 한편, 북아메리카와 서아시아 지역은 2016년 경까지 학생수 증가폭이 컸지만 이후 학생 유입량이 급감하는 것으로 나타난다. 해당 지역으로부터의 학생 유입을 방해하는 요인에 대한 분석이 필요할 것이다.
+  
+```{r}
+
+
+학생증가국 <- 학생증가_lm %>% 
+  # unnest(data) %>% 
+  filter(지역 != "Eastern Asia") %>%
+  arrange(-estimate)
+
+
+학생증가국 %>% 
+  mutate(지역 = fct_reorder(지역, estimate)) %>% 
+  filter(p.value < 0.05) %>% 
+  ggplot(aes(지역, estimate))+
+  # scale_y_continuous(limits = c(0, 2)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),width=0.5, size=.01) +
+  geom_point(aes(fill = estimate), shape = 21, color = "black") +
   coord_flip() +
-  guides(fill =F)
+  theme_minimal() +
+  theme(legend.position = "none") +
+  scale_fill_gradient(high = "#ae0e36", low = "grey20") +
+  geom_text(aes(label = paste("p =", round(p.value, 3))), y = 3, vjust = 0.5, size = 2, parse =F) +
+  labs(y = "연도당 학생수 증가량") +
+  ggsave("07_estimate_지역.png", height = 4, width = 4)
 
 
-# edges_sample <- edges_casted %>% 
-#   sample_n(size = 100)
-# 
+student_info %>% 
+  filter(지역 != "Eastern Asia") %>%
+  count(입학년도, 지역)  %>% 
+  left_join(학생증가국 %>% select(지역, estimate, p.value), by = "지역") %>% 
+  mutate(지역 = fct_reorder(지역, -estimate)) %>% 
+  semi_join(학생증가국, by = "지역") %>% 
+  filter(지역 != "CHN") %>% 
+  filter(p.value < 0.05) %>% 
+  ggplot(aes(입학년도, n, group = 지역, color = n))+
+  geom_line() +
+  geom_point(alpha = 0.7) +
+  geom_smooth(aes(color = ..y..), method = "lm", se =F)+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45,
+                                   size = 3)) +
+  facet_wrap(~ 지역) +
+  labs(y = "학생수") +
+  scale_x_continuous(breaks = seq(2006, 2019, 1))+
+  ggsave("08_지역별_학생_증가량.png", height = 4, width = 4)
+
+
+
+
+
+```
+  
+  
+  
+## 상이성(disparity) 분석
+  
+  상이성은 한 생태계가 얼마나 이질적인 종들로 이루어져 있는 지 의미한다. 생태계를 구성하는 종의 수가 많고 각 종 간의 이질성이 높을수록 생태계의 상이성이 높아진다. 고려대학교 외국인 학생의 상이성 분석은 외국인 학생들의 출신국이 얼마나 다른 지를 보여준다. 상이성을 측정하기 위한 기준은 다양할 수 있다. 예를 들어 각 국가 간의 지리적 거리(Mayer, Thierry, Zignago, Soledad)나 문화적 거리(De Santis, Gustavo, Maltagliati, Mauro, Salvini, Silvana) 등이 외국인 학생들의 출신국 사이의 거리를 평가하기 기준이 될 수 있다. 또, 각 교내 학생 활동 데이터를 바탕으로 출신국 간의 거리를 산출할 수도 있다. 본 연구에서는 해석적 의미가 가장 명확한 국가간 지리적 거리를 상이성 산출의 기준으로 사용했다. 그림 8은 연도별 상이성의 변화를 보여준다. 각 상이성 점수는 해당 년도에 입학한 외국인 학생들의 출신국 간 지리적 거리를 모두 더한 값이다. 2016년의 상이성이 가장 높았다. 하지만 그림 9는 상이성 지수의 한계를 보여준다. 상이성 지수는 종의 분포를 고려하지 않기 때문에 종의 수가 많아질수록 그에 비례해 커지게 된다, *r* = `r rd(cor.test(heuristic_data$variety, heuristic_data$disparity)[[4]],2)`, *p* < .001. 이러한 과정에서 생태계 내 개체의 대부분을 차지하는 종과 단 하나의 개체가 존재하는 종 사이의 비중이 반영되지 않게 된다. 
+  
+
+  
+```{r}
+
+# 국적 상이성
+heuristic_data %>% 
+  ggplot(aes(입학년도, disparity, color = disparity)) +
+  geom_line(alpha = 0.8) +
+  geom_point(aes(size = N))+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  scale_x_continuous(breaks = seq(2006, 2019, 1))+
+  scale_y_continuous(limits = c(0, 15000),
+                     labels = comma_format())+
+  geom_text(aes(label = round(disparity, 2)), hjust = 0.5, vjust = -2,
+            check_overlap = T, size = 2) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(y = "상이성(disparity)") +
+  ggsave("09_국적_상이성.png", height = 4, width = 6)
+
+# 다종성 X 상이성
+heuristic_data %>% 
+  ggplot(aes(variety, disparity, color = disparity)) +
+  geom_point(aes(size = N), alpha = 0.7)+
+  geom_smooth(aes(color = ..y..), method = "lm", se =F, alpha = 0.7)+
+  geom_text(aes(label = 입학년도), hjust = 0.5, vjust = -2,
+            check_overlap = T, size = 2) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 15000),
+                     labels = comma_format())+
+  theme(legend.position = "none") +
+  labs(y = "상이성(disparity)",
+       x = "다종성(variety)") +
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  ggsave("10_다종성_by_상이성.png", height = 4, width = 6)
+
+```
+  
+  
+  
+  
+  
+## 다양성(diversity) 분석
+
+  다양성은 균등성과 가중치를 모두 고려한 개념이다. 다양성 지수는 서로 이질적인 종들이 얼마나 고르게 분포하는 지를 종합적으로 보여준다. 고려대학교 외국인 학생의 다양성 분석은 얼마나 다양한 국적의 학생들이 고르게 분포하는 지 보여준다. 상이성 분석에서 개체의 비중이 고려되지 않은 것과 다르게 다양성 분석에서는 특정 국가 출신의 외국인 학생의 비율이 높을수록 다양성에 미치는 영향력이 커진다. 반면에 소수의 학생이 존재하는 국가는 그 국가가 다른 국가들과 이질적이어도 전체 다양성에 미치는 영향력은 작게 된다. 
+그림 10은 연도별 다양성 지수 변화를 보여준다. 다양성 분석 결과는 외국인 유학생의 양적 증가가 다양성 증가로 이어지지 않을 수 있다는 것을 다시 한 번 보여준다. 2019에는 전년 대비 외국인 학생의 수는 감소하였지만 다양성은 오히려 증가한 것을 확인할 수 있다. 다양성 지수 역시 중국 학생 비율과 밀접하게 관련되어 있는 것으로 나타났다, *r* = `r rd(cor.test(heuristic_data$diversity, heuristic_data$중국학생비율)[[4]],2)`, *p* < .001. 
+  
+
+
+```{r}
+
+heuristic_data %>% 
+  ggplot(aes(입학년도, diversity, color = diversity)) +
+  geom_line(aes(color = ..y..)) +
+  geom_point(aes(size = N))+
+  scale_color_gradient(high = "#ae0e36", low = "grey20") +
+  scale_x_continuous(breaks = seq(2006, 2019, 1))+
+  # scale_y_continuous(limits = c(1300, 3500))+
+  geom_text(aes(label = round(diversity, 2)), hjust = 0.5, vjust = -2,
+            check_overlap = T, size = 2) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(y = "다양성(diversity)") +
+  ggsave("11_국적_다양성.png", height = 4, width = 6)
+
+
+
+
+```
+
+
+## 다양성 최적 균형점(optimal balance) 분석
+
+  한 시스템 내에서 어떤 요소는 다른 요소들보다 특정 영역에서의 수행 수준(performance)이 높을 수 있다. 만약 모든 시스템을 이 요소로 채우게 되면 전체 시스템의 다양성이 낮아지게 된다. 다양성 최적 균형점은 각 요소들의 수행 수준과 다양성의 트레이드오프(trade-off)가 최적이 되는 지점을 말한다. 고려대학교 외국인 학생 다양성에서 최적 균형점은 수행 수준을 어떻게 정의하는가에 따라 달라질 수 있다. 본 연구에서는 성적을 기준으로 다양성 최적 균형점 분석을 수행했다. 성적은 한 학생의 학업적 성취를 가장 잘 보여주는 지표 중 하나이다. 성적과 관련해 구체적으로 살펴볼 수 있는 지표는 총평점(GPA)과 성적 변화도가 있다. 총평점은 한 학생의 누적 성적을 통해 산출되며 해당 학생의 평균적인 학업 성취도를 보여준다. 성적 변화도는 시간의 흐름에 따른 성적의 변화를 통해 산출되며 해당 학생의 학업적 잠재력을 평가한다. 외국인 학생의 경우 언어 및 문화적 적응의 문제로 인해 저학년 시기에 학업적 역량이 충분히 발휘되지 못할 가능성이 있다. 따라서 외국인 학생의 학업적 성취도를 평가하기 위해 총평점과 성적 변화도 모두를 고려했다. 그림 11과 12는 각각 외국인 학생의 출신 국가별 총평점의 평균과 성적 변화도의 평균을 보여준다. 이들 국가 중에서 지난 10년 동안 입학한 외국인 학생이 50명 이상인 주요 11개 국가를 대상으로 다양성 최적 균형점 분석을 실시했다. 표 X 11개 국가 출신 외국인 학생의 평균 GPA와 성적향상률을 보여준다.
+
+
+
+```{r}
+
+총평점 <- student_info %>% 
+  filter(입학년도 >= 2010) %>%
+  mutate(학점_증명용_scaled = scale(학점_증명용)) %>% 
+  group_by(지역) %>% 
+  mutate(지역_gpa = mean(학점_증명용, na.rm=T)) %>% 
+  mutate(지역_gpa_scaled = mean(학점_증명용_scaled, na.rm=T)) %>% 
+  group_by(국적, 지역, 지역_gpa) %>% 
+  summarise(n = n(),
+            국적_gpa = mean(학점_증명용, na.rm=T),
+            국적_gpa_scaled = mean(학점_증명용_scaled, na.rm=T)) %>% 
+  ungroup() %>% 
+  filter(!is.na(지역)) %>% 
+  mutate(지역 = fct_reorder(지역, 지역_gpa),
+         국적 = fct_reorder(국적, 국적_gpa))
+
+총평점 %>%   ggplot(aes(지역, 국적_gpa)) + 
+  geom_point(aes(size = n), alpha = 0.5) +
+  geom_point(aes(지역, 지역_gpa, fill = 지역_gpa), size = 3, shape = 21, color = "black") +
+  scale_fill_gradient(high = "#ae0e36", low = "grey20")  +
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  ggrepel::geom_text_repel(aes(label = 국적), size = 1) +
+  labs(y = "총평점(GPA)") +
+  coord_flip() +
+  ggsave("12_국적_gpa.png", height = 4, width = 6) 
+
+
+
+성적변화도 <- student_info %>% 
+  filter(입학년도 >= 2010) %>%
+  mutate(성적향상_scaled = scale(성적향상)) %>% 
+  group_by(지역) %>% 
+  mutate(지역_slope = mean(성적향상, na.rm=T)) %>% 
+  mutate(지역_slope_scaled = mean(성적향상_scaled, na.rm=T)) %>% 
+  group_by(국적, 지역, 지역_slope) %>% 
+  summarise(n = n(),
+            국적_slope = mean(성적향상, na.rm=T),
+            국적_slope_scaled = mean(성적향상_scaled, na.rm=T)) %>% 
+  ungroup() %>% 
+  filter(!is.na(지역)) %>% 
+  mutate(지역 = fct_reorder(지역, 지역_slope),
+         국적 = fct_reorder(국적, 국적_slope))
+
+
+
+성적변화도 %>% 
+  ggplot(aes(지역, 국적_slope)) + 
+  geom_point(aes(size = n), alpha = 0.5) +
+  geom_point(aes(지역, 지역_slope, fill = 지역_slope), size = 3, shape = 21, color = "black") +
+  scale_fill_gradient(high = "#ae0e36", low = "grey20")  +
+  theme_minimal() +
+  theme(legend.position = "none") + 
+  ggrepel::geom_text_repel(aes(label = 국적), size = 1) +
+  labs(y = "성적 변화(slope) / 학기") +
+  coord_flip() +
+  ggsave("13_국적_slope.png", height = 4, width = 6) 
+
+# # 성적 및 성적 향상률 
+performance_criteria_gpa <- 총평점 %>%
+  select(국적, 국적_gpa_scaled, n) %>%
+  left_join(성적변화도 %>%
+  select(국적, 국적_slope_scaled), by = "국적") %>%
+  filter(!is.na(국적_slope_scaled)) %>%
+  filter( n >= 50) %>% # 50명 이상
+  select(국적, 국적_gpa_scaled, 국적_slope_scaled) %>%
+  as_tibble() %>%
+  mutate(sum = 국적_gpa_scaled + 국적_slope_scaled) %>%
+  arrange(-sum)
+
+
+# 교과 및 비교과 활동
+performance_criteria_engagement <- student_info %>% 
+  add_count(국적) %>% 
+  filter( n >= 55) %>% # 50명 이상
+  mutate(이중완료 = ifelse(이중전공신청 > 이중전공포기, 1, 0)) %>% 
+  mutate(융합완료 = ifelse(융합전공신청 > 융합전공포기, 1, 0)) %>% 
+  mutate(학석사연계 = ifelse(학생설계전공신청 > 학생설계전공포기, 1, 0)) %>% 
+  mutate(진리장학금 = 진리형_프로그램장학금_1학기 + 진리형_프로그램장학금_2학기) %>% 
+  select(식별자, 국적, 이중완료, 융합완료, 
+         학점교류_국내, 교환학생_국외,
+             진리장학금) %>% 
+  pivot_longer(이중완료:진리장학금, names_to = "cate", values_to = "value") %>% 
+  group_by(국적, cate) %>% 
+  summarise(m = mean(value)) %>%
+  pivot_wider(id_cols = 국적, names_from = cate, values_from = m) %>% 
+  arrange(match(국적, performance_criteria_gpa$국적))
+  
+
+
+```
+
+
+```{r}
+
+
+# 국가 pairs별 거리
+d <- expand.grid(performance_criteria$국적, performance_criteria$국적) %>%
+  rename(iso_o = Var1,
+         iso_d = Var2) %>%
+  left_join(distance, by = c("iso_o", "iso_d")) %>%
+
+  reshape2::acast(iso_d~iso_o, value.var = "distw") %>%
+  as.matrix()
+
+d <- d[performance_criteria$국적,performance_criteria$국적]
+d[upper.tri(d, diag = T)] <- 0
+
+
+# 11국가 기준 전체 확률 조합
+library(partitions)
+library(iterpc)
+C = t(restrictedparts(11,11))
+p_list <- do.call(rbind, lapply(1:nrow(C),function(i) getall(iterpc(table(C[i,]),                                                           order=T,                                                          labels = unique(rev(C[i,]))))))/11
+
+
+
+# V_S 계산
+V_S_optimal_list_gpa <- list()
+V_P_optimal_list_gpa <- list()
+V_E_optimal_list_gpa <- list()
+p_optimal_list_gpa <- list()
+
+V_S_optimal_list_engagement <- list()
+V_P_optimal_list_engagement <- list()
+V_E_optimal_list_engagement <- list()
+p_optimal_list_engagement <- list()
+
+
+delta_list <- c(0, sort(rep(10 ^ seq(-4,2, by = 1), 5))  * c(1,2,4,6,8))
+
+# delta 값 선택
+for (delta  in delta_list) {
+
+  print(paste0("delta = ", delta))
+
+  V_S_optimal_gpa <- -100000000
+  V_S_optimal_engagement <- -100000000
+
+  for (i in 1:nrow(p_list)) {
+    p <- t(p_list[i,])
+
+    # V{E}
+    V_E_gpa <- p %*% as.matrix(performance_criteria_gpa[, 2:3]) %>%
+      sum()
+
+    V_E_engagement <- p %*% as.matrix(performance_criteria_engagement[, 2:6]) %>%
+      sum()
+    
+    
+    # V{P}
+    V_P <- (t(p) %*% p) %*% log(d+1) %>%
+      diag() %>%
+      sum()
+
+    V_S_gpa = V_E_gpa + delta * V_P
+    V_S_engagement = V_E_engagement + delta * V_P
+
+    if (V_S_optimal_gpa < V_S_gpa) {
+      V_S_optimal_gpa = V_S_gpa
+      V_E_optimal_gpa = V_E_gpa
+      V_P_optimal_gpa = V_P
+      p_optimal_gpa = p
+    }
+    
+    if (V_S_optimal_engagement < V_S_engagement) {
+      V_S_optimal_engagement = V_S_engagement
+      V_E_optimal_engagement = V_E_engagement
+      V_P_optimal_engagement = V_P
+      p_optimal_engagement = p
+    }
+    
+  }
+
+  V_S_optimal_list_gpa[[as.character(delta)]] <- V_S_optimal_gpa
+  V_E_optimal_list_gpa[[as.character(delta)]] <- V_E_optimal_gpa
+  V_P_optimal_list_gpa[[as.character(delta)]] <- V_P_optimal_gpa
+  p_optimal_list_gpa[[as.character(delta)]] <- p_optimal_gpa
+
+  V_S_optimal_list_engagement[[as.character(delta)]] <- V_S_optimal_engagement
+  V_E_optimal_list_engagement[[as.character(delta)]] <- V_E_optimal_engagement
+  V_P_optimal_list_engagement[[as.character(delta)]] <- V_P_optimal_engagement
+  p_optimal_list_engagement[[as.character(delta)]] <- p_optimal_engagement
+}
+
+min_gpa = 100000000000
+min_engagement = 100000000000
+for(i in 1:length(V_E_optimal_list_gpa)) {
+  diff_gpa = V_E_optimal_list_gpa[[i]] - V_P_optimal_list_gpa[[i]]
+  diff_engagement = V_E_optimal_list_engagement[[i]] - V_P_optimal_list_engagement[[i]]
+  
+  if (diff_gpa < min_gpa){
+    mindiff_gpa = diff_gpa
+  }
+
+    if (diff_engagement < min_gpa){
+    mindiff_engagement = diff_engagement
+  }
+}
+
+writexl::write_xlsx(V_S_optimal_list_gpa %>%
+                      bind_rows(), "V_S_optimal_list_gpa.xlsx")
+writexl::write_xlsx(V_E_optimal_list_gpa %>%
+                      bind_rows(), "V_E_optimal_list_gpa.xlsx")
+writexl::write_xlsx(V_P_optimal_list_gpa %>%
+                      bind_rows(), "V_P_optimal_list_gpa.xlsx")
+writexl::write_xlsx(p_optimal_list_gpa %>%
+                      bind_rows(), "p_optimal_list_gpa.xlsx")
+
+
+writexl::write_xlsx(V_S_optimal_list_engagement %>%
+                      bind_rows(), "V_S_optimal_list_engagement.xlsx")
+writexl::write_xlsx(V_E_optimal_list_engagement %>%
+                      bind_rows(), "V_E_optimal_list_engagement.xlsx")
+writexl::write_xlsx(V_P_optimal_list_engagement %>%
+                      bind_rows(), "V_P_optimal_list_engagement.xlsx")
+writexl::write_xlsx(p_optimal_list_engagement %>%
+                      bind_rows(), "p_optimal_list_engagement.xlsx")
+
 
 ```
 
 
 
 
+  
+  주어진 트레이드오프에서 수행 수준(V{E})과 다양성(V{P})의 합(V{S})이 최대가 되는 조합을 통해 국적별 최적 구성을 산출한다. 수행 수준을 우선
+  
+  
+  
+  
+ 그림13은 수행 수준/다양성 트레이드오프에 따른 국적별 구성의 변화를 보여준다. 트레이드오프가 작을수록 수행 수준이 중시되어 말레이시아, 케나다 출신들의 비중이 높아진다. 트레이드오프가 커질수록 다양성이 더 중요하게 고려된다. 
+
+  
+  을 우선했을 때의 최적 구성을 나타낸다. 반대로 트레이드오프가 높을수록 다양성을 중시했을 때의 최적 구성을 보여준다.   
 
 
+```{r}
+
+총평점 %>% 
+  filter(n >= 50) %>% 
+  left_join(성적변화도, by= "국적") %>% 
+  mutate(국적 = countrycode(국적, "iso3c", "country.name")) %>% 
+  mutate(sum = 국적_gpa_scaled + 국적_slope_scaled) %>% 
+  arrange(-sum) %>% 
+  select(국적, 국적_gpa, 국적_slope) %>% 
+  rename(평균_GPA = 국적_gpa,
+         평균_성적향상률 = 국적_slope) %>% 
+  kable() %>% 
+  kable_styling()
+
+performance_criteria_engagement %>% 
+  kable() %>% 
+  kable_styling()
 
 
+p_optimal_list <- read_xlsx("p_optimal_list.xlsx")
+    
+
+p_optimal_list_gpa %>% 
+  bind_rows() %>% 
+  mutate(국적 = performance_criteria$국적) %>% 
+  mutate(국적 = fct_reorder(국적, `0`)) %>% 
+  pivot_longer(`0`:`800`, names_to = "delta", values_to = "p") %>%
+  arrange(delta) %>% 
+  select(delta, p, 국적) %>% 
+  mutate(num = as.numeric(delta)) %>% 
+  filter(num >= 0.00025, num<= 25) %>%
+  mutate(delta = fct_reorder(delta, num)) %>% 
+  ggplot(aes(num, p, fill = 국적, group = 국적)) +
+  geom_area(color = "black") +
+  scale_fill_brewer(palette = "Spectral") +
+  scale_x_continuous(trans = log10_trans(),
+                     breaks = trans_breaks("log10", function(x) 10^x),
+                     labels = trans_format("log10", math_format(10^.x)),
+                     expand = c(0, 0, 0, 0)) +
+  scale_y_continuous(expand = c(0, 0, 0, 0), labels = percent_format()) +
+  theme_minimal() +
+  labs(y = "국적별 구성",
+       x = "trade-off(δ)") +
+  ggsave("14_1_최적다양성_gpa.png", height = 6, width = 7)
+  
+  
+  p_optimal_list_engagement %>% 
+  bind_rows() %>% 
+  mutate(국적 = performance_criteria$국적) %>% 
+  pivot_longer(`0`:`800`, names_to = "delta", values_to = "p") %>%
+  arrange(delta) %>% 
+  select(delta, p, 국적) %>% 
+  mutate(num = as.numeric(delta)) %>% 
+  filter(num >= 0.005, num<= 1) %>%
+  mutate(delta = fct_reorder(delta, num)) %>% 
+  mutate(국적 = fct_relevel(국적, c("CAN", "CHN", "JPN", "KAZ", "MNG",
+                                "RUS", "SAU", "TWN", "USA", "UZB", "MYS"))) %>% 
+  ggplot(aes(num, p, fill = 국적, group = 국적)) +
+  geom_area(color = "black") +
+  scale_fill_brewer(palette = "Spectral") +
+  scale_x_continuous(trans = log10_trans(),
+                     breaks = trans_breaks("log10", function(x) 10^x),
+                     labels = trans_format("log10", math_format(10^.x)),
+                     expand = c(0, 0, 0, 0)) +
+  scale_y_continuous(expand = c(0, 0, 0, 0), labels = percent_format()) +
+  theme_minimal() +
+  labs(y = "국적별 구성",
+       x = "trade-off(δ)") +
+  ggsave("14_2_최적다양성_engagement.png", height = 6, width = 7)
+
+student_info %>%
+  filter(!grepl("졸업|제적", 학적상태)) %>% 
+  semi_join(performance_criteria, by = "국적") %>% 
+  count(국적, sort=T) %>% 
+  mutate(국적 = fct_relevel(국적, c("CAN", "CHN", "JPN", "KAZ", "MNG",
+                                "RUS", "SAU", "TWN", "USA", "UZB", "MYS"))) %>% 
+  mutate(p = n / sum(n)) %>% 
+  ggplot(aes(1 , p, fill = 국적)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Spectral") +
+  scale_y_continuous(expand = c(0, 0, 0, 0), labels = percent_format()) +
+  scale_x_continuous(expand = c(0, 0, 0, 0)) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        legend.position = "none") +
+  labs(y = "",
+       x = "")  +
+  ggsave("14_3_국적별구성 현황.png", height = 6, width = 2)
 
 
-
-
-
-
-
-# 성적
+  
+  
+```
+  
+  
+  
+  
+  
 
 성적은 한 학생의 학업적 성취도와 관련된 기본적인 지표이다. 성적과 관련해 구체적으로 살펴볼 수 있는 지표는 총평점(GPA)과 성적 변화도, 성적우수 표창, 성적경고 등이 있다. 총평점과 성적 변화도는 한 학생의 전반적인 학업적 성취도를 보여준다. 성적우수 표창 및 성적경고는 각각 뛰어난 학업적 역량과 취약성을 보여준다. 
-
-## 총평점
-
-### 총평점 분포
-
-```{r}
-p_gpa_total <- gpa_total %>% 
-  ggplot(aes(학점)) +
-  geom_density(fill = "#ae0e36", alpha = 0.7) +
-  geom_vline(aes(xintercept = mean(학점))) +
-  geom_text(aes(label = paste0("평균 GPA: ", round(mean(학점),2)), x = mean(학점)), y=0.2, hjust=-1)
-
-.myggplotly(p_gpa_total)
-
-```
-
-
-## 성적 변화도
-
-성적 변화도는 입학 후 졸업까지의 학업적 성취의 발전 방향을 보여줄 수 있다. 
-[논의 사항 참조]
-
-```{r}
-###############################
-# 졸업생 학생 성장 지표 ######
-###############################
-
-
-# 성적 향상률
-# gpa_record_alumni <-  read.delim("../../졸업생_학부_학점_누계.txt", header = T,
-#                                      sep = "|", stringsAsFactors = FALSE) %>%
-#   semi_join(student_info_for_idx, by = "식별자") %>% 
-#   as_tibble() 
-# 
-# 
-# gpa_total <- gpa_record_alumni %>%
-#   filter(년도 == 0, 학기 == "00")
-
-```
-
-
-
-## 국제 교류 
-
-
-
-# 비교과 활동
-
-
-
-## 국내대학 학점 교류
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 논의 사항 (가장 적합한)
-
-## 성적 변화도 
-
-- 기울기
-
-- 누적 평균성적 변화
-
-- 최종학점 - 첫학기 학점

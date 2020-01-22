@@ -30,3 +30,5 @@ RColorBrewer
 janitor
 widyr
 rstudioapi
+broom
+countrycode

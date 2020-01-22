@@ -12,8 +12,8 @@ library(rstudioapi)
 # setwd(dirname(current_path ))
 # getwd()
 source("../../R_functions/engagement_network_data.R", encoding = 'utf-8')
-setwd(dirname(current_path))
-getwd()
+# setwd(dirname(current_path))
+# getwd()
 
 # student_info_for_idx <- student_info_for_idx %>% 
 #   filter(grepl("졸업", 학적상태))
@@ -119,3 +119,5 @@ getwd()
 #   count(입학유형, ) %>% View()
 
   
+
+
