@@ -655,7 +655,7 @@ heuristic_data %>%
   theme_minimal() +
   theme(legend.position = "none") + 
   ggrepel::geom_text_repel(aes(label = 국적), size = 1) +
-  labs(y = "성적 변화(slope) / 학기") +
+  labs(y = "학기 당 성적 변화(slope)") +
   coord_flip() +
   ggsave("13_국적_slope.png", height = 4, width = 6) 
 
@@ -868,7 +868,7 @@ p_optimal_list_gpa %>%
   arrange(delta) %>% 
   select(delta, p, 국적) %>% 
   mutate(num = as.numeric(delta)) %>% 
-  filter(num >= 0.00025, num<= 25) %>%
+  filter(num >= 0.001, num<= 25) %>%
   mutate(delta = fct_reorder(delta, num)) %>% 
   ggplot(aes(num, p, fill = 국적, group = 국적)) +
   geom_area(color = "black") +
@@ -891,7 +891,7 @@ p_optimal_list_gpa %>%
   arrange(delta) %>% 
   select(delta, p, 국적) %>% 
   mutate(num = as.numeric(delta)) %>% 
-  filter(num >= 0.005, num<= 1) %>%
+  filter(num >= 0.01, num<= 1) %>%
   mutate(delta = fct_reorder(delta, num)) %>% 
   mutate(국적 = fct_relevel(국적, c("CAN", "CHN", "JPN", "KAZ", "MNG",
                                 "RUS", "SAU", "TWN", "USA", "UZB", "MYS"))) %>% 
@@ -916,7 +916,7 @@ student_info %>%
                                 "RUS", "SAU", "TWN", "USA", "UZB", "MYS"))) %>% 
   mutate(p = n / sum(n)) %>% 
   ggplot(aes(1 , p, fill = 국적)) +
-  geom_col() +
+  geom_col(color = "black") +
   scale_fill_brewer(palette = "Spectral") +
   scale_y_continuous(expand = c(0, 0, 0, 0), labels = percent_format()) +
   scale_x_continuous(expand = c(0, 0, 0, 0)) +
