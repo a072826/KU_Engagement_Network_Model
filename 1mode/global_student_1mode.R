@@ -6,7 +6,7 @@ current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 getwd()
 source("../../../R_functions/func.r", encoding = 'utf-8')
-source("../../../R_functions/engagement_network_data.r", encoding = 'utf-8')
+load("../../../R_functions/전체_학부_수강이력_네트워크.rdata")
 current_path = rstudioapi::getActiveDocumentContext()$path
 setwd(dirname(current_path ))
 
